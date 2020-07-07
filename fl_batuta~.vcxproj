@@ -123,8 +123,10 @@
     <ClCompile Include="fl_batuta~audio.c" />
     <ClCompile Include="fl_batuta~aux.c" />
     <ClCompile Include="fl_batuta~edit.c" />
+    <ClCompile Include="fl_batuta~perform.c" />
     <ClCompile Include="fl_batuta~storage.c" />
     <ClCompile Include="fl_batuta~ui.c" />
+    <ClCompile Include="fl_expand~text.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="fl_batuta~.h" />
