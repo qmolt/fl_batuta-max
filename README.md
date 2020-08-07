@@ -18,9 +18,11 @@ A compiled external (.mxe64) and a help file (.maxhelp) are provided in the exam
 ### Inlets and Outlets
 
 (From left to right)
+
 **Inlets:**
 - (int) on/off switch (play/edit)
 - (int) next bar/set bar (play/edit) 
+
 **Outlets:**
 - (sig~) beat normalized ramp for syncing purposes
 - (sig~) bar normalized ramp for syncing purposes
