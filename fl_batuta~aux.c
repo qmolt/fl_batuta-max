@@ -33,26 +33,8 @@ t_double huetorgb(double p, double q, double t) {
 	return p;
 }
 
-/* text ---------------------------------------------------------------------- */
-void my_setparse(long *ac, t_atom **av, char *line)
-{
-	long m_ac = 0;
-	t_atom *m_av = NULL;
-	t_max_err err;
-	err = atom_setparse(&m_ac, &m_av, line);
-	*ac = m_ac;
-	atom_getatom_array(m_ac, m_av, *ac, *av);
-}
-void my_gettext(long ac, t_atom *av, long *text_len, char **text, long flag)
-{
-	char *m_texto = (char *)sysmem_newptr(LARGO_MAX_LINEA * sizeof(char));
-	long m_texto_len = 0;
-
-	atom_gettext(ac, av, &m_texto_len, &m_texto, flag);
-	*text_len = m_texto_len;
-	strncpy_zero(*text, m_texto, m_texto_len);
-	sysmem_freeptr(m_texto);
-}
+//text ---------------------------------------------------------------------- 
+/*
 int getlinea(char *dest, char *orig, int lim)
 {
 	int i;
@@ -72,15 +54,14 @@ int getlinea(char *dest, char *orig, int lim)
 
 	return i;
 }
+*/
 
 /* math ---------------------------------------------------------------------- */
 float parse_curve(float curva)
 {
-	if (curva < CURVE_MIN) { curva = CURVE_MIN; }
-	else if (curva > CURVE_MAX) { curva = CURVE_MAX; }
-
-	if (curva > 0.0) { return (float)(1.0 / (1.0 - curva)); }
-	else { return (float)(curva + 1.0); }
+	curva = MIN(MAX(curva, CURVE_MIN), CURVE_MAX);
+	if (curva > 0.0) { return (float)(1.0 / (1.0 - curva)); } //c in (0,1)-> ret (1,0)
+	else { return (float)(curva + 1.0); }//c in (-1,0]-> ret [0,1]
 }
 float msbeat_to_bpm(float ms_beat)
 {
@@ -88,16 +69,16 @@ float msbeat_to_bpm(float ms_beat)
 	return bpm;
 }
 
-/* comparison (menor) -------------------------------------------------------- */
-long cifra_compasmenor(fl_cifra *a, fl_cifra *b)
+/* comparison (previous) -------------------------------------------------------- */
+long signature_prevbar(fl_tsign *a, fl_tsign *b)
 {
-	fl_cifra *c1 = (fl_cifra *)a;
-	fl_cifra *c2 = (fl_cifra *)b;
+	fl_tsign *c1 = (fl_tsign *)a;
+	fl_tsign *c2 = (fl_tsign *)b;
 
 	if (c1->n_bar < c2->n_bar) { return 1; }
 	else { return 0; }
 }
-long goto_compasmenor(fl_goto *a, fl_goto *b)
+long goto_prevbar(fl_goto *a, fl_goto *b)
 {
 	fl_goto *c1 = (fl_goto *)a;
 	fl_goto *c2 = (fl_goto *)b;
@@ -105,7 +86,7 @@ long goto_compasmenor(fl_goto *a, fl_goto *b)
 	if (c1->n_bar < c2->n_bar) { return 1; }
 	else { return 0; }
 }
-long tempo_compasmenor(fl_tempo *a, fl_tempo *b)
+long tempo_prevbar(fl_tempo *a, fl_tempo *b)
 {
 	fl_tempo *c1 = (fl_tempo *)a;
 	fl_tempo *c2 = (fl_tempo *)b;
@@ -113,25 +94,25 @@ long tempo_compasmenor(fl_tempo *a, fl_tempo *b)
 	if (c1->n_bar < c2->n_bar) { return 1; }
 	else { return 0; }
 }
-long nota_iniciomenor(fl_nota *a, fl_nota *b)
+long note_prevstart(fl_note *a, fl_note *b)
 {
-	fl_nota *c1 = (fl_nota *)a;
-	fl_nota *c2 = (fl_nota *)b;
+	fl_note *c1 = (fl_note *)a;
+	fl_note *c2 = (fl_note *)b;
 
 	if (c1->b_inicio < c2->b_inicio) { return 1; }
 	else { return 0; }
 }
 
 /* comparison (equal) -------------------------------------------------------- */
-long cifra_mismocompas(fl_cifra *a, fl_cifra *b)
+long signature_samebar(fl_tsign *a, fl_tsign *b)
 {
-	fl_cifra *c1 = (fl_cifra *)a;
-	fl_cifra *c2 = (fl_cifra *)b;
+	fl_tsign *c1 = (fl_tsign *)a;
+	fl_tsign *c2 = (fl_tsign *)b;
 
 	if (c1->n_bar == c2->n_bar) { return 1; }
 	else { return 0; }
 }
-long goto_mismocompas(fl_goto *a, fl_goto *b)
+long goto_samebar(fl_goto *a, fl_goto *b)
 {
 	fl_goto *c1 = (fl_goto *)a;
 	fl_goto *c2 = (fl_goto *)b;
@@ -139,7 +120,7 @@ long goto_mismocompas(fl_goto *a, fl_goto *b)
 	if (c1->n_bar == c2->n_bar) { return 1; }
 	else { return 0; }
 }
-long tempo_mismocompas(fl_tempo *a, fl_tempo *b)
+long tempo_samebar(fl_tempo *a, fl_tempo *b)
 {
 	fl_tempo *c1 = (fl_tempo *)a;
 	fl_tempo *c2 = (fl_tempo *)b;

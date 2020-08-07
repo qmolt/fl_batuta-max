@@ -3,3 +3,4 @@
 *.sln
 x64
 .vs
+*.data

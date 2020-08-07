@@ -26,7 +26,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 
 	/* load state variables */
 	double sr = x->sr;
-	short onoff = x->onoff;
+	char isplaying = x->isplaying;
 	double samps_bar = x->samps_bar;
 	long total_samps = x->total_samps;
 	long samps_beat = x->samps_beat;
@@ -50,17 +50,17 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	short type_dtempo = x->type_dtempo;
 	long delay_dtempo = x->delay_dtempo;
 
-	fl_cifra **hcifra = x->cifras;
-	long total_cifras = x->total_cifras;
+	fl_tsign **hcifra = x->tsigns;
+	long total_tsigns = x->total_tsigns;
 	long index_cifra = x->index_cifra;
 	fl_goto **hgoto = x->gotos;
 	long total_gotos = x->total_gotos;
 	long index_goto = x->index_goto;
-	fl_nota **hnotas_out = x->notas_out;
+	fl_note **hnotes_out = x->notes_out;
 	long index_nota = x->index_nota;
-	fl_bar **hbars = x->compases;
+	fl_bar **hbars = x->bars;
 	fl_bar *pbar;
-	fl_nota **hnota;
+	fl_note **hnota;
 	long cont_notas = 0;
 	long index_compas = x->index_compas;
 
@@ -73,21 +73,29 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	total_samps = (long)(negras * ms_beat * sr * 0.001);
 	total_beat = (long)(total_samps / negras);
 
-	/* Perform the DSP loop */
+	/* DSP loop */
 	while (n--) {
-		if (onoff) {
-			//reiniciar contador
+		if (isplaying) {
+			//restart counter
 			if (samps_bar++ > total_samps || n_bar < 0 || n_bar >= total_bars) {
 				samps_bar = 0;
 
-				//inicio
+				//start
 				x->n_bar = n_bar = (n_bar < 0) ? 0 : x->n_bar + 1;
+				//change to next bar if there is one
+				if (next_bar_dirty) {
+					n_bar = next_bar;
+					index_tempo = index_cifra = index_goto = 0;
+					next_bar_dirty = 0;
+					dtempo_busy = 0;
+				}
+				//out bar
 				clock_delay(x->outbar_clock, 0);
 
-				//final
+				//end
 				if (n_bar >= total_bars) {
 					clock_delay(x->bang_clock, 0);
-					x->onoff = 0;
+					x->isplaying = 0;
 					n_bar = 0;
 				}
 
@@ -106,22 +114,14 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					else { break; }
 				}
 
-				//cambiar a proximo bar si es que hay
-				if (next_bar_dirty) {
-					n_bar = next_bar;
-					index_tempo = index_cifra = index_goto = 0;
-					next_bar_dirty = 0;
-					dtempo_busy = 0;
-				}
-
-				//cifra
-				while (index_cifra < total_cifras) {
+				//time signature
+				while (index_cifra < total_tsigns) {
 					if (hcifra[index_cifra]->n_bar < n_bar) {
-						x->negras = negras = hcifra[index_cifra]->negras;
+						x->negras = negras = hcifra[index_cifra]->beats;
 						index_cifra++;
 					}
 					else if (hcifra[index_cifra]->n_bar == n_bar) {
-						x->negras = negras = hcifra[index_cifra]->negras;
+						x->negras = negras = hcifra[index_cifra]->beats;
 
 						total_samps_ant = total_samps;
 
@@ -182,6 +182,8 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					else {
 						durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
 						curva_dtempo = htempo[index_tempo]->curva;
+						if (curva_dtempo > 0.0) { curva_dtempo = (1.f / (1.f - curva_dtempo)); } //(0,1) -> (1,0)
+						else { curva_dtempo = (curva_dtempo + 1.f); } //(-1,0] -> [0,1]
 						cont_tempo = 0;
 						dtempo_busy = 2;
 					}
@@ -206,7 +208,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				}
 			}
 
-			//notas
+			//notes
 			if (index_compas != n_bar) {
 				index_compas = n_bar;
 				index_nota = 0;
@@ -216,13 +218,14 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				cont_notas = 0;
 				hnota = pbar->hdl_nota;
 				while (samps_bar >= (double)hnota[index_nota]->b_inicio * total_beat) {
-					hnotas_out[cont_notas++] = hnota[index_nota++];
-					x->total_notas_out = cont_notas;
+					hnotes_out[cont_notas++] = hnota[index_nota++];
+					x->total_notes_out = cont_notas;
 					if (index_nota >= hbars[index_compas]->total_notas) { break; }
 				}
 				if (cont_notas > 0) { clock_delay(x->outmes_clock, 0); }
 			}
 		}
+		else { samps_bar = samps_beat = 0; }
 		samps_beat = (long)samps_bar % (long)(total_samps / negras);
 		*output_beat++ = (double)samps_beat / (double)total_beat;
 		cursor = *output_bar++ = samps_bar / (double)total_samps;
@@ -250,7 +253,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	x->index_goto = index_goto;
 	x->index_nota = index_nota;
 	x->next_bar_dirty = next_bar_dirty;
-	x->old_msbeat = old_msbeat;	//cambio de tempo
+	x->old_msbeat = old_msbeat;	//for tempo variation
 	x->new_msbeat = new_msbeat;
 	x->dtempo_busy = dtempo_busy;
 	x->cont_tempo = cont_tempo;

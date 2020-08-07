@@ -2,26 +2,103 @@
 
 void fl_batuta_tick(t_fl_batuta *x)
 {
-	if (x->pos_cursor_norm != x->fasor_cursor) {
-		x->pos_cursor_norm = x->fasor_cursor;
-		jbox_invalidate_layer((t_object *)x, NULL, ps_cursor_layer);
-		jbox_redraw((t_jbox *)x);
-	}
+	x->pos_cursor_norm = x->fasor_cursor;
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("cursor_layer"));
+	jbox_redraw((t_jbox *)x);
 
-	if (sys_getdspstate()) {	// if the dsp is still on, schedule a next pictmeter_tick() call
-		clock_fdelay(x->cursor_clock, 50);
+	if (sys_getdspstate()) {	// if the dsp is still on, schedule a next fl_batuta_tick() call
+		clock_fdelay(x->cursor_clock, 40); //40ms -> 25fps
 	}
+}
+
+void fl_batuta_show_range(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv) //chan_sel
+{ 
+	t_atom *av = argv;
+	long ac = argc;
+	long a, b;
+	if (ac < 1) { return; }
+	if (atom_gettype(av) == A_SYM) {
+		if (atom_getsym(av) == gensym("all")) { x->jn_show_all_notes = 1; }
+		else{ object_warn((t_object *)x, "???"); return; }
+	}
+	else {
+		if (ac == 1) {
+			if (atom_gettype(av) != A_FLOAT && atom_gettype(av) != A_LONG) { object_warn((t_object *)x, "channel must be a number"); return; }
+			a = (long)atom_getlong(av);
+			x->jn_chan_min = x->jn_chan_max = a;
+		}
+		else if (ac == 2) {
+			if (atom_gettype(av) != A_FLOAT && atom_gettype(av) != A_LONG && atom_gettype(av + 1) != A_FLOAT && atom_gettype(av + 1) != A_LONG) { 
+				object_warn((t_object *)x, "range values must be numbers"); 
+				return; 
+			}
+			a = (long)atom_getlong(av);
+			b = (long)atom_getlong(av + 1);
+			x->jn_chan_min = MIN(a, b);
+			x->jn_chan_max = MAX(a, b);
+		}
+		x->jn_show_all_notes = 0;
+	}
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("bars_layer"));
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("notes_layer"));
+	jbox_redraw((t_jbox *)x);
+}
+
+void fl_batuta_sel_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)  //note_sel
+{
+	t_atom *av = argv;
+	long ac = argc;
+	t_max_err err = MAX_ERR_NONE;
+	long chan;
+	long index;
+	long bar = x->jn_bar;
+
+	if (ac != 2) { return; }
+	if (atom_gettype(av) != A_LONG && atom_gettype(av) != A_FLOAT) { object_warn((t_object *)x, "channel must be a number"); return; }
+	if (atom_gettype(av + 1) != A_LONG && atom_gettype(av + 1) != A_FLOAT) { object_warn((t_object *)x, "index must be a number"); return; }
+
+	chan = (long)atom_getlong(av);
+	index = (long)atom_getlong(av + 1);
+
+	if (index < 0) { object_warn((t_object *)x, "index must be 0 or positive"); return; }
+	
+	err = fl_batuta_is_note_index(x, &x->j_selnota, bar, chan, index);
+	if(err){ object_warn((t_object *)x, "note couldn't be selected"); return; }
+
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("bars_layer"));
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("notes_layer"));
+	jbox_redraw((t_jbox *)x);
+}
+
+t_max_err fl_batuta_is_note_index(t_fl_batuta *x, long *note_index, long bar, long chan, long index_in_chan)
+{ //analog of do_find_note_index(). searches for index on handler. for use in UI after update_notes()
+	long n_bar = bar;
+	long n_chan = chan;
+	long n_note = index_in_chan;
+	long total_notes;
+	long total_bars = x->total_bars;
+	long index_accum = 0;
+	long *index_note = note_index;
+
+	*index_note = -1;
+	if (n_note < 0) { return MAX_ERR_GENERIC; }
+	if (n_bar < 0 || n_bar >= total_bars) { return MAX_ERR_GENERIC; }
+	if (!x->bars) { return MAX_ERR_INVALID_PTR; }
+	total_notes = x->bars[n_bar]->total_notas;
+	if (!x->bars[n_bar]->hdl_nota) { return MAX_ERR_INVALID_PTR; }
+	for (int i = 0; i < total_notes; i++) {
+		if (x->bars[bar]->hdl_nota[i]->canal == n_chan) {
+			if (index_accum++ == n_note) {
+				*index_note = i;
+			}
+		}
+	}
+	return MAX_ERR_NONE;
 }
 
 void fl_batuta_paint(t_fl_batuta *x, t_object *patcherview)
 {
-	// paint the box grey
-	long ii, jj, jn_bar, jn_total_bars;
-	double posx, posy;
-	fl_bar *pbar;
 	t_object *textfield;
-	char *text, *text_info;
-	long text_len;
 
 	t_rect rect;
 	t_jrgba c;
@@ -39,8 +116,11 @@ void fl_batuta_paint(t_fl_batuta *x, t_object *patcherview)
 	jgraphics_set_source_jrgba(g, &c);
 	jgraphics_rectangle_fill_fast(g, 0, 0, rect.width, rect.height);
 
-	//compases
+	//bars
 	fl_batuta_paint_bars(x, patcherview, &rect);
+	
+	//notes
+	fl_batuta_paint_notes(x, patcherview, &rect);
 
 	//cursor
 	fl_batuta_paint_cursor(x, patcherview, &rect);
@@ -48,72 +128,18 @@ void fl_batuta_paint(t_fl_batuta *x, t_object *patcherview)
 	//textfield
 	fl_batuta_paint_textfield(x, patcherview, &rect);
 
-	//over triangle
-	if (x->onoff) { return; }
-
-	ii = x->j_overnota;
-	jj = x->j_selnota;
-	jn_bar = x->jn_bar;
-	jn_total_bars = x->jn_total_bars;
-
-	if (ii >= 0) {
-		if (jn_bar >= 0 && jn_bar < jn_total_bars) {
-			text = (char *)sysmem_newptr(LARGO_MAX_LINEA * sizeof(char));
-			text_info = (char *)sysmem_newptr(LARGO_MAX_LINEA * sizeof(char));
-
-			pbar = x->compases[jn_bar];
-			posx = (pbar->hdl_nota[ii]->pos_ui.x + 1) * rect.width / 3;
-			posy = pbar->hdl_nota[ii]->pos_ui.y * (rect.height - BOX_FIJO_H - LADO_CUADRADO) + BOX_TEXTF_H;
-
-			jgraphics_set_source_rgba(g, 0.7, 0.7, 0.7, 1.);;
-			jgraphics_move_to(g, posx, posy);
-			jgraphics_line_to(g, posx + LADO_CUADRADO, posy + LADO_CUADRADO * 0.5);
-			jgraphics_line_to(g, posx, posy + LADO_CUADRADO);
-			jgraphics_line_to(g, posx, posy);
-			jgraphics_close_path(g);
-			jgraphics_fill(g);
-
-			jgraphics_set_line_width(g, 2.0);
-			jgraphics_select_font_face(g, "Arial", JGRAPHICS_FONT_SLANT_NORMAL, JGRAPHICS_FONT_WEIGHT_BOLD);
-			jgraphics_set_font_size(g, 8.5);
-			jgraphics_set_source_rgb(g, 1., 1., 1.);
-			jgraphics_move_to(g, rect.width / 3, rect.height - 0.2 * BOX_INFO_H);
-			my_gettext(pbar->hdl_nota[ii]->cnota, pbar->hdl_nota[ii]->pnota, &text_len, &text_info, 0);
-			sprintf(text, "inicio: %7.5f; canal e info: %s", pbar->hdl_nota[ii]->b_inicio, text_info);
-			jgraphics_show_text(g, text);
-
-			sysmem_freeptr(text);
-			sysmem_freeptr(text_info);
-		}
-	}
-	if (jj >= 0) {
-		if (jn_bar >= 0 && jn_bar < jn_total_bars) {
-			pbar = x->compases[jn_bar];
-			posx = (pbar->hdl_nota[jj]->pos_ui.x + 1) * rect.width / 3;
-			posy = pbar->hdl_nota[jj]->pos_ui.y * (rect.height - BOX_FIJO_H - LADO_CUADRADO) + BOX_TEXTF_H;
-
-			jgraphics_set_source_rgba(g, 1., 1., 1., 1.);;
-			jgraphics_move_to(g, posx, posy);
-			jgraphics_line_to(g, posx + LADO_CUADRADO, posy + LADO_CUADRADO * 0.5);
-			jgraphics_line_to(g, posx, posy + LADO_CUADRADO);
-			jgraphics_line_to(g, posx, posy);
-			jgraphics_close_path(g);
-			jgraphics_fill(g);
-		}
-	}
+	//info
+	fl_batuta_paint_info(x, patcherview, &rect);
 }
+
 void fl_batuta_paint_bars(t_fl_batuta *x, t_object *view, t_rect *rect)
 {
-	t_jgraphics *g = jbox_start_layer((t_object *)x, view, ps_bars, rect->width, rect->height);
+	t_jgraphics *g = jbox_start_layer((t_object *)x, view, gensym("bars_layer"), rect->width, rect->height - BOX_FIJO_H);
 
-	char text[80];
 	t_jrgba c;
 
-	t_jrgba color_nota;
-	t_jrgb color_sa;
-	double hue;
-	double posx, posy;
-	long total_notas, canal;
+	long divs = 1;
+	double cifra_ant = -1., cifra_act = -1., cifra_sig = -1.;
 
 	long jn_bar = x->jn_bar;
 	long jn_bar_ant = jn_bar - 1;
@@ -122,281 +148,480 @@ void fl_batuta_paint_bars(t_fl_batuta *x, t_object *view, t_rect *rect)
 	fl_bar *pbar_ant = NULL;
 	fl_bar *pbar_act = NULL;
 	fl_bar *pbar_sig = NULL;
-	fl_bar *pbar = NULL;
-	short is_ini;
-	short jn_bar_ant_in = (jn_bar_ant >= 0 && jn_bar_ant < jn_total_bars) ? 1 : 0;
-	short jn_bar_act_in = (jn_bar >= 0 && jn_bar < jn_total_bars) ? 1 : 0;
-	short jn_bar_sig_in = (jn_bar_sig >= 0 && jn_bar_sig < jn_total_bars) ? 1 : 0;
-
-	long divs = 1;
-	float cifra_ant = -1, cifra_act = -1, cifra_sig = -1;
-	short tmp_type_ant = -1, tmp_type_act = -1, tmp_type_sig = -1;
-	float tmp_curva_ant, tmp_curva_act, tmp_curva_sig;
-	float tmp_tempo_ant, tmp_tempo_act, tmp_tempo_sig;
-	float tmp_delay_ant, tmp_delay_act, tmp_delay_sig;
-	float tmp_duracion_ant, tmp_duracion_act, tmp_duracion_sig;
-	short gt_is_goto_act = 0, gt_is_goto_sig = 0;
-	long gt_repet_sig;
-	long gt_tobar_sig;
-
-	is_ini = (x->jn_tmpo_ini && x->jn_cfra_ini && x->jn_nota_ini) ? 1 : 0;
-
-	pbar_ant = (jn_bar_ant < jn_total_bars &&jn_bar_ant >= 0 && is_ini) ? x->compases[jn_bar_ant] : x->pbar_error;
-	pbar_act = (jn_bar < jn_total_bars &&jn_bar >= 0 && is_ini) ? x->compases[jn_bar] : x->pbar_error;
-	pbar_sig = (jn_bar_ant < jn_total_bars &&jn_bar_sig >= 0 && is_ini) ? x->compases[jn_bar_sig] : x->pbar_error;
-
-	//cifra, tempo y goto
-	if (jn_bar_ant_in && is_ini) {
-		cifra_ant = pbar_ant->cifra_ui;
-		tmp_type_ant = pbar_ant->tempo_ui.type;
-		tmp_curva_ant = pbar_ant->tempo_ui.curva;
-		tmp_tempo_ant = pbar_ant->tempo_ui.ms_beat;
-		tmp_delay_ant = pbar_ant->tempo_ui.ms_inicio;
-		tmp_duracion_ant = pbar_ant->tempo_ui.ms_durvar;
+	char bar_ant_ini = 0;
+	char bar_act_ini = 0;
+	char bar_sig_ini = 0;
+	//check if previous, present, and next bar are valid
+	if (x->bars) {
+		bar_ant_ini = (jn_bar_ant >= 0 && jn_bar_ant < jn_total_bars) ? 1 : 0;
+		bar_act_ini = (jn_bar >= 0 && jn_bar < jn_total_bars) ? 1 : 0;
+		bar_sig_ini = (jn_bar_sig >= 0 && jn_bar_sig < jn_total_bars) ? 1 : 0;
+		pbar_ant = (bar_ant_ini) ? x->bars[jn_bar_ant] : &x->error_bar;
+		pbar_act = (bar_act_ini) ? x->bars[jn_bar] : &x->error_bar;
+		pbar_sig = (bar_sig_ini) ? x->bars[jn_bar_sig] : &x->error_bar;
 	}
-	if (jn_bar_act_in && is_ini) {
-		cifra_act = pbar_act->cifra_ui;
-		tmp_type_act = pbar_act->tempo_ui.type;
-		tmp_curva_act = pbar_act->tempo_ui.curva;
-		tmp_tempo_act = pbar_act->tempo_ui.ms_beat;
-		tmp_delay_act = pbar_act->tempo_ui.ms_inicio;
-		tmp_duracion_act = pbar_act->tempo_ui.ms_durvar;
-		gt_is_goto_act = pbar_act->isgoto_ui;
-	}
-	if (jn_bar_sig_in && is_ini) {
-		cifra_sig = pbar_sig->cifra_ui;
-		tmp_type_sig = pbar_sig->tempo_ui.type;
-		tmp_curva_sig = pbar_sig->tempo_ui.curva;
-		tmp_tempo_sig = pbar_sig->tempo_ui.ms_beat;
-		tmp_delay_sig = pbar_sig->tempo_ui.ms_inicio;
-		tmp_duracion_sig = pbar_sig->tempo_ui.ms_durvar;
-		gt_is_goto_sig = pbar_sig->isgoto_ui;
-		if (gt_is_goto_sig) {
-			gt_repet_sig = pbar_sig->pgoto_ui->total_rep - pbar_sig->pgoto_ui->cont_rep;
-			gt_tobar_sig = pbar_sig->pgoto_ui->to_bar;
-		}
-	}
+	//in the very extreme case that x->bars couldn't alloc mem in update_bars
+	if (!pbar_ant) { pbar_ant = &x->error_bar; }
+	if (!pbar_act) { pbar_act = &x->error_bar; }
+	if (!pbar_sig) { pbar_sig = &x->error_bar; }
+	//if bar is valid and lists non empty, get tsign, tempo and goto
+	cifra_ant = pbar_ant->psignat_ui->beats;
+	cifra_act = pbar_act->psignat_ui->beats;
+	cifra_sig = pbar_sig->psignat_ui->beats;
 
+	//draw layer
 	if (g) {
-		//cuadrados
-		if (!x->jn_nota_ini || !jn_bar_ant_in) {
-			jgraphics_set_source_rgba(g, 0.1, 0.1, 0.1, 0.5);
-			jgraphics_rectangle_fill_fast(g, 3., BOX_TEXTF_H + 3., rect->width / 3 - 3, rect->height - BOX_FIJO_H - 3);
+		//rectangles
+		double bar_w = (rect->width / 3.) - 2.;
+		double bar_h = rect->height - (BOX_FIJO_H + 3.);
+		jgraphics_set_source_rgba(g, 0.1, 0.1, 0.1, 0.5);
+		if (bar_ant_ini) {
+			jgraphics_rectangle_fill_fast(g, 3., 1.5, bar_w, bar_h);
 		}
-		if (!x->jn_nota_ini || !jn_bar_act_in) {
-			jgraphics_set_source_rgba(g, 0.1, 0.1, 0.1, 0.5);
-			jgraphics_rectangle_fill_fast(g, rect->width / 3, BOX_TEXTF_H + 3., rect->width / 3, rect->height - BOX_FIJO_H - 3);
+		if (bar_act_ini) {
+			jgraphics_rectangle_fill_fast(g, bar_w + 3., 1.5, bar_w, bar_h);
 		}
-		if (!x->jn_nota_ini || !jn_bar_sig_in) {
-			jgraphics_set_source_rgba(g, 0.1, 0.1, 0.1, 0.5);
-			jgraphics_rectangle_fill_fast(g, 2 * rect->width / 3, BOX_TEXTF_H + 3., rect->width / 3 - 3, rect->height - BOX_FIJO_H - 3);
+		if (bar_sig_ini) {
+			jgraphics_rectangle_fill_fast(g, 2. * bar_w + 3., 1.5, bar_w, bar_h);
 		}
 
-		//lineas
-		object_attr_getjrgba((t_object *)x, ps_elementcolor, &c);
+		//lines
+		object_attr_getjrgba((t_object *)x, gensym("elementcolor"), &c);
 		jgraphics_set_source_jrgba(g, &c);
 
-		jgraphics_move_to(g, 3, BOX_TEXTF_H + 3);
-		jgraphics_line_to(g, 3, rect->height - BOX_INFO_H);
-		jgraphics_set_line_width(g, 1);
+		jgraphics_set_line_width(g, 1.5);
+		jgraphics_move_to(g, 3., 1.5);
+		jgraphics_line_to(g, 3., bar_h + 1.5);
 		jgraphics_stroke(g);
 
-		jgraphics_move_to(g, rect->width / 3, BOX_TEXTF_H + 3);
-		jgraphics_line_to(g, rect->width / 3, rect->height - BOX_INFO_H);
-		jgraphics_set_line_width(g, 1);
+		jgraphics_set_line_width(g, 1.5);
+		jgraphics_move_to(g, bar_w + 3., 1.5);
+		jgraphics_line_to(g, bar_w + 3., bar_h + 1.5);
 		jgraphics_stroke(g);
 
-		jgraphics_move_to(g, 2 * rect->width / 3, BOX_TEXTF_H + 3);
-		jgraphics_line_to(g, 2 * rect->width / 3, rect->height - BOX_INFO_H);
-		jgraphics_set_line_width(g, 1);
+		jgraphics_set_line_width(g, 1.5);
+		jgraphics_move_to(g, 2. * bar_w + 3., 1.5);
+		jgraphics_line_to(g, 2. * bar_w + 3., bar_h + 1.5);
 		jgraphics_stroke(g);
 
-		jgraphics_move_to(g, rect->width - 3, BOX_TEXTF_H + 3);
-		jgraphics_line_to(g, rect->width - 3, rect->height - BOX_INFO_H);
-		jgraphics_set_line_width(g, 1);
+		jgraphics_set_line_width(g, 1.5);
+		jgraphics_move_to(g, 3. * bar_w + 3., 1.5);
+		jgraphics_line_to(g, 3. * bar_w + 3., bar_h + 1.5);
 		jgraphics_stroke(g);
 
-		//texto cifra
+		//time signature lines
+		if (cifra_ant > 0.) {
+			object_attr_getjrgba((t_object *)x, gensym("elementcolor"), &c);
+			jgraphics_set_source_jrgba(g, &c);
+			divs = (long)cifra_ant;
+			for (int i = 1; i <= divs; i++) {
+				jgraphics_move_to(g, 3. + i * bar_w / cifra_ant, bar_h + 1.5);
+				jgraphics_line_to(g, 3. + i * bar_w / cifra_ant, bar_h - 10.);
+				jgraphics_set_line_width(g, 1);
+				jgraphics_stroke(g);
+			}
+		}
+		if (cifra_act > 0.) {
+			object_attr_getjrgba((t_object *)x, gensym("elementcolor"), &c);
+			jgraphics_set_source_jrgba(g, &c);
+			divs = (long)cifra_act;
+			for (int i = 1; i <= divs; i++) {
+				jgraphics_move_to(g, 3. + bar_w * (i / cifra_act + 1.), bar_h + 1.5);
+				jgraphics_line_to(g, 3. + bar_w * (i / cifra_act + 1.), bar_h - 10.);
+				jgraphics_set_line_width(g, 1);
+				jgraphics_stroke(g);
+			}
+		}
+		if (cifra_sig > 0.) {
+			object_attr_getjrgba((t_object *)x, gensym("elementcolor"), &c);
+			jgraphics_set_source_jrgba(g, &c);
+			divs = (long)cifra_sig;
+			for (int i = 1; i <= divs; i++) {
+				jgraphics_move_to(g, 3. + bar_w * (i / cifra_sig + 2.), bar_h + 1.5);
+				jgraphics_line_to(g, 3. + bar_w * (i / cifra_sig + 2.), bar_h - 10.);
+				jgraphics_set_line_width(g, 1);
+				jgraphics_stroke(g);
+			}
+		}
+		jbox_end_layer((t_object *)x, view, gensym("bars_layer"));
+	}
+	jbox_paint_layer((t_object *)x, view, gensym("bars_layer"), 0., BOX_TEXTF_H);	// position of the layer
+}
+
+void fl_batuta_paint_notes(t_fl_batuta *x, t_object *view, t_rect *rect)
+{
+	t_jgraphics *g = jbox_start_layer((t_object *)x, view, gensym("notes_layer"), rect->width, rect->height - BOX_FIJO_H);
+
+	t_jrgba color_nota;
+	t_jrgb color_sa;
+	double hue;
+	double posx, posy, notew, noteh;
+	double bar_w, bar_h;
+	long total_notas, chan;
+
+	char isplaying = x->isplaying;
+	long chan_min = x->jn_chan_min;
+	long chan_max = x->jn_chan_max;
+	char all_chan = x->jn_show_all_notes;
+
+	long jn_bar = x->jn_bar;
+	long jn_bar_ant = jn_bar - 1;
+	long jn_bar_sig = jn_bar + 1;
+	long jn_total_bars = x->jn_total_bars;
+	fl_bar *pbar_ant = NULL;
+	fl_bar *pbar_act = NULL;
+	fl_bar *pbar_sig = NULL;
+	char bar_ant_ini = 0;
+	char bar_act_ini = 0;
+	char bar_sig_ini = 0;
+	//check if previous, present, and next bar are valid
+	if (x->bars) {
+		bar_ant_ini = (jn_bar_ant >= 0 && jn_bar_ant < jn_total_bars) ? 1 : 0;
+		bar_act_ini = (jn_bar >= 0 && jn_bar < jn_total_bars) ? 1 : 0;
+		bar_sig_ini = (jn_bar_sig >= 0 && jn_bar_sig < jn_total_bars) ? 1 : 0;
+		pbar_ant = (bar_ant_ini) ? x->bars[jn_bar_ant] : &x->error_bar;
+		pbar_act = (bar_act_ini) ? x->bars[jn_bar] : &x->error_bar;
+		pbar_sig = (bar_sig_ini) ? x->bars[jn_bar_sig] : &x->error_bar;
+	}
+	//in the very extreme case that x->bars couldn't alloc mem in update_bars
+	if (!pbar_ant) { pbar_ant = &x->error_bar; }
+	if (!pbar_act) { pbar_act = &x->error_bar; }
+	if (!pbar_sig) { pbar_sig = &x->error_bar; }
+
+	//draw layer
+	if (g) {
+		//rectangles
+		bar_w = (rect->width / 3.) - 2.;
+		bar_h = rect->height - (BOX_FIJO_H + 3.);
+		notew = NOTE_W;
+		noteh = bar_h / 10.;
+		jgraphics_set_source_rgba(g, 0.1, 0.1, 0.1, 0.5);
+		if (bar_ant_ini) {
+			total_notas = pbar_ant->total_notas;
+			for (int i = 0; i < total_notas; i++) {
+				posx = pbar_ant->hdl_nota[i]->pos_ui.x * bar_w + 3.;
+				posy = pbar_ant->hdl_nota[i]->pos_ui.y * bar_h + 1.5;
+				chan = pbar_ant->hdl_nota[i]->canal;
+
+				if (pbar_ant->hdl_nota[i]->pos_ui.x < 1.) {
+					hue = ((chan * COLOR_MULTIPLIER) % 360) / 360.0;
+					color_sa = hsltorgb(hue, 0.85, 0.3);
+					color_nota.red = color_sa.red;
+					color_nota.green = color_sa.green;
+					color_nota.blue = color_sa.blue;
+					color_nota.alpha = ALPHA_NOTE_ON;
+
+					if (!all_chan && !isplaying) { if (chan < chan_min || chan > chan_max) { color_nota.alpha = ALPHA_NOTE_OFF; } }
+
+					jgraphics_set_source_jrgba(g, &color_nota);	// set the color
+					jgraphics_move_to(g, posx, posy);
+					jgraphics_rectangle_fill_fast(g, posx, posy, notew, noteh);
+				}
+				else {
+					jgraphics_set_source_rgb(g, 1., 0., 0.);
+					jgraphics_line_draw_fast(g, 3., bar_h + 1.5, bar_w + 3., bar_h + 1.5, 1.);
+				}
+			}
+		}
+		if (bar_act_ini) {
+			total_notas = pbar_act->total_notas;
+			for (int i = 0; i < total_notas; i++) {
+				posx = pbar_act->hdl_nota[i]->pos_ui.x * bar_w + 3. + bar_w;
+				posy = pbar_act->hdl_nota[i]->pos_ui.y * bar_h + 1.5;
+				chan = pbar_act->hdl_nota[i]->canal;
+
+				if (pbar_act->hdl_nota[i]->pos_ui.x < 1.) {
+					hue = ((chan * COLOR_MULTIPLIER) % 360) / 360.0;
+					color_sa = hsltorgb(hue, 0.85, 0.3);
+					color_nota.red = color_sa.red;
+					color_nota.green = color_sa.green;
+					color_nota.blue = color_sa.blue;
+					color_nota.alpha = ALPHA_NOTE_ON;
+
+					if (x->j_selnota == i) { color_nota.red = 1.; color_nota.green = 1.; color_nota.blue = 1.; }
+
+					if (!all_chan && !isplaying) { if (chan < chan_min || chan > chan_max) { color_nota.alpha = ALPHA_NOTE_OFF; } }
+
+					jgraphics_set_source_jrgba(g, &color_nota);	// set the color
+					jgraphics_move_to(g, posx, posy);
+					jgraphics_rectangle_fill_fast(g, posx, posy, notew, noteh);
+				}
+				else{
+					jgraphics_set_source_rgb(g, 1., 0., 0.);
+					jgraphics_line_draw_fast(g, bar_w + 3., bar_h + 1.5, 2 * bar_w + 3., bar_h + 1.5, 1.);
+				}
+			}
+		}
+		if (bar_sig_ini) {
+			total_notas = pbar_sig->total_notas;
+			for (int i = 0; i < total_notas; i++) {
+				posx = pbar_sig->hdl_nota[i]->pos_ui.x * bar_w + 3. + 2 * bar_w;
+				posy = pbar_sig->hdl_nota[i]->pos_ui.y * bar_h + 1.5;
+				chan = pbar_sig->hdl_nota[i]->canal;
+
+				if (pbar_sig->hdl_nota[i]->pos_ui.x < 1.) {
+					hue = ((chan * COLOR_MULTIPLIER) % 360) / 360.0;
+					color_sa = hsltorgb(hue, 0.85, 0.3);
+					color_nota.red = color_sa.red;
+					color_nota.green = color_sa.green;
+					color_nota.blue = color_sa.blue;
+					color_nota.alpha = ALPHA_NOTE_ON;
+
+					if (!all_chan && !isplaying) { if (chan < chan_min || chan > chan_max) { color_nota.alpha = ALPHA_NOTE_OFF; } }
+
+					jgraphics_set_source_jrgba(g, &color_nota);	// set the color
+					jgraphics_move_to(g, posx, posy);
+					jgraphics_rectangle_fill_fast(g, posx, posy, notew, noteh);
+				}
+				else {
+					jgraphics_set_source_rgb(g, 1., 0., 0.);
+					jgraphics_line_draw_fast(g, 2. * bar_w + 3., bar_h + 1.5, 3. * bar_w + 3., bar_h + 1.5, 1.);
+				}
+			}
+		}
+		jbox_end_layer((t_object *)x, view, gensym("notes_layer"));
+	}
+	jbox_paint_layer((t_object *)x, view, gensym("notes_layer"), 0., BOX_TEXTF_H);	// position of the layer
+}
+
+void fl_batuta_paint_info(t_fl_batuta *x, t_object *view, t_rect *rect)
+{
+	t_jgraphics *g = jbox_start_layer((t_object *)x, view, gensym("info_layer"), rect->width, BOX_INFO_H);
+
+	char text[124];
+	
+	fl_note *pnote;
+	t_max_err err = MAX_ERR_NONE;
+
+	double bar_w = (rect->width / 3.) - 2.;
+	
+	double ts_ant, ts_act, ts_sig;
+	long ts_bar_ant, ts_bar_act, ts_bar_sig;
+	short tmp_type_act;
+	long tmp_bar_ant, tmp_bar_act, tmp_bar_sig;
+	float tmp_curva_act;
+	float tmp_delay_act;
+	float tmp_duracion_act;
+	float tmp_tempo_ant, tmp_tempo_act, tmp_tempo_sig;
+	short gt_is_goto_ant, gt_is_goto_act, gt_is_goto_sig;
+	long gt_repet_ant, gt_repet_act, gt_repet_sig;
+	long gt_tobar_ant, gt_tobar_act, gt_tobar_sig;
+
+	long j_selnota = x->j_selnota;
+	long jn_bar = x->jn_bar;
+	long jn_bar_ant = jn_bar - 1;
+	long jn_bar_sig = jn_bar + 1;
+	fl_bar *pbar_ant = NULL;
+	fl_bar *pbar_act = NULL;
+	fl_bar *pbar_sig = NULL;
+	
+	long jn_total_tsigns = x->jn_total_tsigns;
+	long jn_total_gotos = x->jn_total_gotos;
+	long jn_total_tempos = x->jn_total_tempos;
+	long jn_total_bars = x->jn_total_bars;
+	//check if previous, present, and next bar are valid
+	char bar_ant_ini = 0;
+	char bar_act_ini = 0;
+	char bar_sig_ini = 0;
+	if (x->bars) {
+		bar_ant_ini = (jn_bar_ant >= 0 && jn_bar_ant < jn_total_bars);
+		bar_act_ini = (jn_bar >= 0 && jn_bar < jn_total_bars);
+		bar_sig_ini = (jn_bar_sig >= 0 && jn_bar_sig < jn_total_bars);
+		pbar_ant = (bar_ant_ini) ? x->bars[jn_bar_ant] : &x->error_bar;
+		pbar_act = (bar_act_ini) ? x->bars[jn_bar] : &x->error_bar;
+		pbar_sig = (bar_sig_ini) ? x->bars[jn_bar_sig] : &x->error_bar;
+	}
+	if (!pbar_ant) { pbar_ant = &x->error_bar; }
+	if (!pbar_act) { pbar_act = &x->error_bar; }
+	if (!pbar_sig) { pbar_sig = &x->error_bar; }
+
+	//get tsign, tempo and goto
+	ts_ant = pbar_ant->psignat_ui->beats;
+	ts_bar_ant = pbar_ant->psignat_ui->n_bar;
+	tmp_bar_ant = pbar_ant->ptempo_ui->n_bar;
+	tmp_tempo_ant = pbar_ant->ptempo_ui->ms_beat;
+	gt_is_goto_ant = pbar_ant->isgoto_ui;
+	if (gt_is_goto_ant > 0) {
+		gt_repet_ant = pbar_ant->pgoto_ui->total_rep - pbar_ant->pgoto_ui->cont_rep;
+		gt_tobar_ant = pbar_ant->pgoto_ui->to_bar;
+	}
+
+	ts_act = pbar_act->psignat_ui->beats;
+	ts_bar_act = pbar_act->psignat_ui->n_bar;
+	tmp_bar_act = pbar_act->ptempo_ui->n_bar;
+	tmp_type_act = pbar_act->ptempo_ui->type;
+	tmp_curva_act = pbar_act->ptempo_ui->curva;
+	tmp_tempo_act = pbar_act->ptempo_ui->ms_beat;
+	tmp_delay_act = pbar_act->ptempo_ui->ms_inicio;
+	tmp_duracion_act = pbar_act->ptempo_ui->ms_durvar;
+	gt_is_goto_act = pbar_act->isgoto_ui;
+	if (gt_is_goto_act > 0) {
+		gt_repet_act = pbar_act->pgoto_ui->total_rep - pbar_act->pgoto_ui->cont_rep;
+		gt_tobar_act = pbar_act->pgoto_ui->to_bar;
+	}
+
+	ts_sig = pbar_sig->psignat_ui->beats;
+	ts_bar_sig = pbar_sig->psignat_ui->n_bar;
+	tmp_bar_sig = pbar_sig->ptempo_ui->n_bar;
+	tmp_tempo_sig = pbar_sig->ptempo_ui->ms_beat;
+	gt_is_goto_sig = pbar_sig->isgoto_ui;
+	if (gt_is_goto_sig > 0) {
+		gt_repet_sig = pbar_sig->pgoto_ui->total_rep - pbar_sig->pgoto_ui->cont_rep;
+		gt_tobar_sig = pbar_sig->pgoto_ui->to_bar;
+	}
+
+	//draw layer
+	if (g) {
+		//text
 		jgraphics_set_line_width(g, 2.0);
 		jgraphics_select_font_face(g, "Arial", JGRAPHICS_FONT_SLANT_NORMAL, JGRAPHICS_FONT_WEIGHT_BOLD);
-		jgraphics_set_font_size(g, 8.5);
-		if (x->jn_cfra_ini) {
-			jgraphics_set_source_rgb(g, 1., 1., 1.);
-			if (jn_bar_ant_in && cifra_ant > 0) {
-				jgraphics_move_to(g, 35, rect->height - 0.8 * BOX_INFO_H);
-				sprintf(text, "%8.5f", cifra_ant);
-				jgraphics_show_text(g, text);
-			}
-			if (jn_bar_act_in && cifra_act > 0) {
-				jgraphics_move_to(g, rect->width / 3, rect->height - BOX_INFO_H * 0.8);
-				sprintf(text, "%8.5f", cifra_act);
-				jgraphics_show_text(g, text);
-			}
-			if (jn_bar_sig_in && cifra_sig > 0) {
-				jgraphics_move_to(g, 2 * rect->width / 3, rect->height - BOX_INFO_H * 0.8);
-				sprintf(text, "%8.5f", cifra_sig);
-				jgraphics_show_text(g, text);
-			}
+		jgraphics_set_font_size(g, 9.);
+		//time signature text
+		jgraphics_set_source_rgb(g, 1., 1., 1.);
+		if (ts_ant > 0) {
+			jgraphics_move_to(g, 70, 0.2 * BOX_INFO_H);
+			if (ts_bar_ant == jn_bar_ant) { sprintf(text, "♦ %8.5f", ts_ant); }
+			else { sprintf(text, "%8.5f", ts_ant); }
+			jgraphics_show_text(g, text);
 		}
-		else {
-			jgraphics_set_source_rgb(g, 1., 0., 0.);
+		if (ts_act > 0) {
+			jgraphics_move_to(g, bar_w, 0.2 * BOX_INFO_H);
+			if (ts_bar_act == jn_bar) { sprintf(text, "♦ %8.5f", ts_act); }
+			else { sprintf(text, "%8.5f", ts_act); }
+			jgraphics_show_text(g, text);
 		}
-		jgraphics_move_to(g, 3, rect->height - BOX_INFO_H * 0.8);
-		jgraphics_show_text(g, "cifra");
+		if (ts_sig > 0) {
+			jgraphics_move_to(g, 2. * bar_w, 0.2 * BOX_INFO_H);
+			if (ts_bar_sig == jn_bar_sig) { sprintf(text, "♦ %8.5f", ts_sig); }
+			else { sprintf(text, "%8.5f", ts_sig); }
+			jgraphics_show_text(g, text);
+		}
+		jgraphics_set_source_rgb(g, .8, .9, .9);
+		if (!jn_total_tsigns) { jgraphics_set_source_rgb(g, 1., 0., 0.); }
+		jgraphics_move_to(g, 3., 0.2 * BOX_INFO_H);
+		jgraphics_show_text(g, "time sign.");
 
 		//texto tempo
-		if (x->jn_tmpo_ini) {
-			jgraphics_set_source_rgb(g, 1., 1., 1.);
-			if (jn_bar_ant_in && tmp_type_ant != -1) {
-				jgraphics_move_to(g, 35, rect->height - BOX_INFO_H * 0.6);
-				if (tmp_type_ant == 0) { sprintf(text, "%8.2f, dl:%8.1f", tmp_tempo_ant, tmp_delay_ant); }
-				else if (tmp_type_ant == 1) { sprintf(text, "%8.2f en %8.2f, dl:%8.1f", tmp_tempo_ant, tmp_duracion_ant, tmp_delay_ant); }
-				else if (tmp_type_ant == 2) { sprintf(text, "%8.2f en %8.2f, c:%3.2f, dl:%8.1f", tmp_tempo_ant, tmp_duracion_ant, tmp_curva_ant, tmp_delay_ant); }
-				jgraphics_show_text(g, text);
-			}
-			if (jn_bar_act_in && tmp_type_act != -1) {
-				jgraphics_move_to(g, rect->width / 3, rect->height - BOX_INFO_H * 0.6);
-				if (tmp_type_act == 0) { sprintf(text, "%8.2f, dl:%8.1f", tmp_tempo_act, tmp_delay_act); }
-				else if (tmp_type_act == 1) { sprintf(text, "%8.2f en %8.2f, dl:%8.1f", tmp_tempo_act, tmp_duracion_act, tmp_delay_act); }
-				else if (tmp_type_act == 2) { sprintf(text, "%8.2f en %8.2f, c:%3.2f, dl:%8.1f", tmp_tempo_act, tmp_duracion_act, tmp_curva_act, tmp_delay_act); }
-				jgraphics_show_text(g, text);
-			}
-			if (jn_bar_sig_in && tmp_type_sig != -1) {
-				jgraphics_move_to(g, 2 * rect->width / 3, rect->height - BOX_INFO_H * 0.6);
-				if (tmp_type_sig == 0) { sprintf(text, "%8.2f ms, dl:%8.1f", tmp_tempo_sig, tmp_delay_sig); }
-				else if (tmp_type_sig == 1) { sprintf(text, "%8.2f ms en %8.2f ms, dl:%8.1f", tmp_tempo_sig, tmp_duracion_sig, tmp_delay_sig); }
-				else if (tmp_type_sig == 2) { sprintf(text, "%8.2f ms en %8.2f ms, c:%3.2f, dl:%8.1f", tmp_tempo_sig, tmp_duracion_sig, tmp_curva_sig, tmp_delay_sig); }
-				jgraphics_show_text(g, text);
-			}
+		jgraphics_set_source_rgb(g, 1., 1., 1.);
+		if (tmp_bar_ant >= 0) {
+			jgraphics_move_to(g, 70., 0.4 * BOX_INFO_H);
+			if (tmp_bar_ant == jn_bar_ant) { sprintf(text, "♦ %8.2f", tmp_tempo_ant); }
+			else { sprintf(text, "%8.2f", tmp_tempo_ant); }
+			jgraphics_show_text(g, text);
 		}
-		else {
-			jgraphics_set_source_rgb(g, 1., 0., 0.);
+		if (tmp_bar_act >= 0) {
+			jgraphics_move_to(g, bar_w, 0.4 * BOX_INFO_H);
+			if (tmp_bar_act == jn_bar) {
+				if (tmp_type_act == 0) { sprintf(text, "♦ %8.2f [→%8.1f]", tmp_tempo_act, tmp_delay_act); }
+				else if (tmp_type_act == 1) { sprintf(text, "♦ %8.2f [→%8.1f, ∆%8.2f]", tmp_tempo_act, tmp_delay_act, tmp_duracion_act); }
+				else if (tmp_type_act == 2) { sprintf(text, "♦ %8.2f [→%8.1f, ∆%8.2f, c%3.2f]", tmp_tempo_act, tmp_delay_act, tmp_duracion_act, tmp_curva_act); }
+			}
+			else { sprintf(text, "%8.2f", tmp_tempo_act); }
+			jgraphics_show_text(g, text);
 		}
-		jgraphics_move_to(g, 3, rect->height - BOX_INFO_H * 0.6);
+		if (tmp_bar_sig >= 0) {
+			jgraphics_move_to(g, 2. * bar_w, 0.4 * BOX_INFO_H);
+			if (tmp_bar_sig == jn_bar_sig) { sprintf(text, "♦ %8.2f", tmp_tempo_sig); }
+			else { sprintf(text, "%8.2f", tmp_tempo_sig); }
+			jgraphics_show_text(g, text);
+		}
+		jgraphics_set_source_rgb(g, .8, .9, .9);
+		if (!jn_total_tempos) { jgraphics_set_source_rgb(g, 1., 0., 0.); }
+		jgraphics_move_to(g, 3, 0.4 * BOX_INFO_H);
 		jgraphics_show_text(g, "tempo");
 
 		//texto goto
-		if (jn_bar_sig_in && gt_is_goto_sig && gt_repet_sig > 0) {
-			jgraphics_set_source_rgb(g, 0., 1., 0.);
-			jgraphics_move_to(g, 0.6667 * rect->width, rect->height - BOX_INFO_H * 0.4);
-			jgraphics_show_text(g, "go to");
-			jgraphics_set_source_rgb(g, 1., 1., 1.);
-			jgraphics_move_to(g, 0.6667 * rect->width + 35, rect->height - BOX_INFO_H * 0.4);
-			sprintf(text, "%d \tX%d", gt_tobar_sig, gt_repet_sig);
+		jgraphics_set_source_rgb(g, 1., 1., 1.);
+		if (gt_is_goto_ant > 0) {
+			jgraphics_move_to(g, 70., 0.6 * BOX_INFO_H);
+			sprintf(text, "♦ %d [X%d]", gt_tobar_ant, gt_repet_ant);
 			jgraphics_show_text(g, text);
 		}
-		else {
-			jgraphics_set_source_rgb(g, 1., 1., 1.);
-			jgraphics_move_to(g, 0.6667 * rect->width, rect->height - BOX_INFO_H * 0.4);
-			jgraphics_show_text(g, "go to");
+		if (gt_is_goto_act > 0) {
+			jgraphics_move_to(g, bar_w, 0.6 * BOX_INFO_H);
+			sprintf(text, "♦ %d [X%d]", gt_tobar_act, gt_repet_act);
+			jgraphics_show_text(g, text);
 		}
+		if (gt_is_goto_sig > 0) {
+			jgraphics_move_to(g, 2 * bar_w, 0.6 * BOX_INFO_H);
+			sprintf(text, "♦ %d [X%d]", gt_tobar_sig, gt_repet_sig);
+			jgraphics_show_text(g, text);
+		}
+		jgraphics_set_source_rgb(g, .8, .9, .9);
+		jgraphics_move_to(g, 3., 0.6 * BOX_INFO_H);
+		jgraphics_show_text(g, "go to");
 
 		//texto compas
 		jgraphics_set_source_rgb(g, 0.8, 0.8, 0.2);
-		jgraphics_move_to(g, 0.3334 * rect->width - 40, rect->height - BOX_INFO_H * 0.4);
-		jgraphics_show_text(g, "compas");
-		jgraphics_move_to(g, 0.3334 * rect->width, rect->height - BOX_INFO_H * 0.4);
+		jgraphics_move_to(g, bar_w - 27, 0.8 * BOX_INFO_H);
+		jgraphics_show_text(g, "bar");
+		jgraphics_move_to(g, bar_w, 0.8 * BOX_INFO_H);
 		sprintf(text, "%d", jn_bar);
 		jgraphics_show_text(g, text);
 
-		if (!is_ini)
-			goto no_ini;
+		//status
+		jgraphics_set_source_rgb(g, .8, .9, .9);
+		jgraphics_move_to(g, 3., 0.8 * BOX_INFO_H);
+		jgraphics_show_text(g, "status");
+		jgraphics_set_source_rgb(g, 1., 1., 1.);
+		jgraphics_move_to(g, 35., 0.82 * BOX_INFO_H);
+		if (x->isplaying) {
+			jgraphics_set_font_size(g, 11.);
+			jgraphics_show_text(g, "►");
+		}
+		else {
+			jgraphics_set_font_size(g, 15.);
+			jgraphics_show_text(g, "■");
+		}
+		if (x->dirty_rec) {
+			jgraphics_set_source_rgb(g, 1., 0., 0.);
+			jgraphics_move_to(g, 38., 0.82 * BOX_INFO_H);
+			jgraphics_set_font_size(g, 17.);
+			jgraphics_show_text(g, "●");
+		}
 
-		//lineas cifra
-		if (x->jn_cfra_ini) {
-			if (jn_bar_ant_in && cifra_ant > 0) {
-				object_attr_getjrgba((t_object *)x, ps_elementcolor, &c);
-				jgraphics_set_source_jrgba(g, &c);
-				divs = (long)cifra_ant;
-				for (int i = 1; i <= divs; i++) {
-					jgraphics_move_to(g, i * rect->width / cifra_ant * 0.3334, 0.85 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_line_to(g, i * rect->width / cifra_ant * 0.3334, 0.9 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_set_line_width(g, 1);
-					jgraphics_stroke(g);
-				}
-			}
-			if (jn_bar_act_in && cifra_act > 0) {
-				object_attr_getjrgba((t_object *)x, ps_elementcolor, &c);
-				jgraphics_set_source_jrgba(g, &c);
-				divs = (long)cifra_act;
-				for (int i = 1; i <= divs; i++) {
-					jgraphics_move_to(g, 0.3334 * rect->width * (i / (double)cifra_act + 1), 0.85 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_line_to(g, 0.3334 * rect->width * (i / (double)cifra_act + 1), 0.9 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_set_line_width(g, 1);
-					jgraphics_stroke(g);
-				}
-			}
-			if (jn_bar_sig_in && cifra_sig > 0) {
-				object_attr_getjrgba((t_object *)x, ps_elementcolor, &c);
-				jgraphics_set_source_jrgba(g, &c);
-				divs = (long)cifra_sig;
-				for (int i = 1; i <= divs; i++) {
-					jgraphics_move_to(g, 0.3334 * rect->width * (i / (double)cifra_sig + 2), 0.85 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_line_to(g, 0.3334 * rect->width * (i / (double)cifra_sig + 2), 0.9 * (rect->height - BOX_FIJO_H) + BOX_TEXTF_H);
-					jgraphics_set_line_width(g, 1);
-					jgraphics_stroke(g);
-				}
+		//selected note info
+		if (x->j_selnota >= 0) {
+			jgraphics_set_font_size(g, 8.5);
+			jgraphics_set_source_rgb(g, .9, .8, .9);
+			jgraphics_move_to(g, 2. * bar_w + 3., 0.8 * BOX_INFO_H);
+			pnote = pbar_act->hdl_nota[j_selnota];
+			err = atom_gettext(pnote->cnota, pnote->pnota, &x->text_size, &x->text_info, 0);
+			if (!err) {
+				sprintf(text, "beat:%7.5f, info: %s", pnote->b_inicio, x->text_info);
+				jgraphics_show_text(g, text);
 			}
 		}
 
-		//notas
-		for (int j = -1; j < 2; j++) {
-			if (jn_bar + j < 0 || jn_bar + j >= jn_total_bars) { continue; }
-			pbar = x->compases[jn_bar + j];
-			total_notas = pbar->total_notas;
-			for (int i = 0; i < total_notas; i++) {
-				posx = (pbar->hdl_nota[i]->pos_ui.x + 1 + j) * rect->width / 3;
-				posy = pbar->hdl_nota[i]->pos_ui.y * (rect->height - BOX_FIJO_H - LADO_CUADRADO) + BOX_TEXTF_H;
-				canal = pbar->hdl_nota[i]->canal;
-
-				hue = ((canal * 53) % 360) / 360.0;
-				color_sa = hsltorgb(hue, 0.85, 0.3);
-				color_nota.red = color_sa.red;
-				color_nota.green = color_sa.green;
-				color_nota.blue = color_sa.blue;
-				color_nota.alpha = 1.;
-				jgraphics_set_source_jrgba(g, &color_nota);	// set the color
-
-				jgraphics_move_to(g, posx, posy);
-				jgraphics_line_to(g, posx + LADO_CUADRADO, posy + LADO_CUADRADO * 0.5);
-				jgraphics_line_to(g, posx, posy + LADO_CUADRADO);
-				jgraphics_line_to(g, posx, posy);
-				jgraphics_close_path(g);
-				jgraphics_fill(g);
-			}
-		}
-
-		jbox_end_layer((t_object *)x, view, ps_bars);
+		jbox_end_layer((t_object *)x, view, gensym("info_layer"));
 	}
-	jbox_paint_layer((t_object *)x, view, ps_bars, 0., 0.);	// position of the layer
-
-no_ini:
-	jbox_end_layer((t_object *)x, view, ps_bars);
-	jbox_paint_layer((t_object *)x, view, ps_bars, 0., 0.);
+	jbox_paint_layer((t_object *)x, view, gensym("info_layer"), 0., rect->height-BOX_INFO_H);	// position of the layer
 }
 void fl_batuta_paint_cursor(t_fl_batuta *x, t_object *view, t_rect *rect)
 {
 	double pos_cursor;
 	t_jrgba c;
-	t_jgraphics *g = jbox_start_layer((t_object *)x, view, ps_cursor_layer, rect->width, rect->height);
+	double bar_w = (rect->width / 3.) - 2.;
+	double bar_h = rect->height - (BOX_FIJO_H + 3.);
+	t_jgraphics *g = jbox_start_layer((t_object *)x, view, gensym("cursor_layer"), bar_w, rect->height - BOX_FIJO_H);
 
 	if (g) {
 		//cursor
-		object_attr_getjrgba((t_object *)x, ps_cursorcolor, &c);
+		object_attr_getjrgba((t_object *)x, gensym("cursorcolor"), &c);
 		jgraphics_set_source_jrgba(g, &c);
 
-		pos_cursor = (x->pos_cursor_norm * rect->width / 3) + rect->width / 3;
-		jgraphics_move_to(g, pos_cursor, BOX_TEXTF_H + 3);
-		jgraphics_line_to(g, pos_cursor, rect->height - BOX_FIJO_H + BOX_TEXTF_H);
-		jgraphics_set_line_width(g, 1);
+		pos_cursor = x->pos_cursor_norm * bar_w;
+		jgraphics_set_line_width(g, 2.);
+		jgraphics_move_to(g, pos_cursor, 1.5);
+		jgraphics_line_to(g, pos_cursor, bar_h + 1.5);
 		jgraphics_stroke(g);
-		jbox_end_layer((t_object *)x, view, ps_cursor_layer);
+		jbox_end_layer((t_object *)x, view, gensym("cursor_layer"));
 	}
-	jbox_paint_layer((t_object *)x, view, ps_cursor_layer, 0., 0.);	// position of the layer
+	jbox_paint_layer((t_object *)x, view, gensym("cursor_layer"), bar_w + 3., BOX_TEXTF_H);	// position of the layer
 }
 void fl_batuta_paint_textfield(t_fl_batuta *x, t_object *view, t_rect *rect)
 {
-	t_jgraphics *g = jbox_start_layer((t_object *)x, view, ps_textin_layer, rect->width, rect->height);
+	t_jgraphics *g = jbox_start_layer((t_object *)x, view, gensym("textin_layer"), rect->width, BOX_TEXTF_H);
 	t_jrgba c;
 
 	if (g) {
@@ -404,8 +629,8 @@ void fl_batuta_paint_textfield(t_fl_batuta *x, t_object *view, t_rect *rect)
 		//jbox_get_rect_for_view((t_object *)x, view, &rect);
 
 		// soft gray background
-		object_attr_getjrgba((t_object *)x, ps_elementcolor, &c);
-		jgraphics_rectangle(g, 3., 3., rect->width - 6, BOX_TEXTF_H - 3);
+		object_attr_getjrgba((t_object *)x, gensym("elementcolor"), &c);
+		jgraphics_rectangle(g, 3., 3., rect->width - 6, BOX_TEXTF_H - 4.5);
 		jgraphics_set_source_jrgba(g, &c);
 		jgraphics_fill(g);
 
@@ -424,68 +649,32 @@ void fl_batuta_paint_textfield(t_fl_batuta *x, t_object *view, t_rect *rect)
 		jgraphics_line_to(g, rect->width - 1., 1.);
 		jgraphics_line_to(g, rect->width - 1., 8.);
 		jgraphics_stroke(g);
-		jbox_end_layer((t_object *)x, view, ps_textin_layer);
+		jbox_end_layer((t_object *)x, view, gensym("textin_layer"));
 	}
-	jbox_paint_layer((t_object *)x, view, ps_textin_layer, 0., 0.);	// position of the layer
+	jbox_paint_layer((t_object *)x, view, gensym("textin_layer"), 0., 0.);	// position of the layer
 }
 
-void fl_batuta_mousemove(t_fl_batuta *x, t_object *patcherview, t_pt pt, long modifiers)
-{
-	t_rect rect;
-	long i, last_over = x->j_overnota;
-	x->j_overnota = -1;
-
-	jbox_get_rect_for_view((t_object *)x, patcherview, &rect);
-
-	long total_notas;
-	long jn_total_bars = x->jn_total_bars;
-	long jn_bar = x->jn_bar;
-	fl_bar *pbar;
-	double posx, posy, width, height;
-
-	if (x->onoff) { return; }
-
-	if (jn_bar >= 0 && jn_bar < jn_total_bars) {
-		total_notas = x->compases[jn_bar]->total_notas;
-		pbar = x->compases[jn_bar];
-		for (i = 0; i < total_notas; i++) {
-			posx = (pbar->hdl_nota[i]->pos_ui.x + 1) / 3;
-			posy = (pbar->hdl_nota[i]->pos_ui.y * (rect.height - BOX_FIJO_H - LADO_CUADRADO) + BOX_TEXTF_H) / rect.height;
-			width = height = LADO_CUADRADO;
-			if (pt.x >= posx * rect.width &&
-				pt.y >= 0.5 * (pt.x - posx * rect.width) * height / width + posy * rect.height &&
-				pt.y <= -0.5 * (pt.x - posx * rect.width) * height / width + posy * rect.height + height &&
-				pt.x >= rect.width / 3 && pt.x <= rect.width * 0.6667) {
-				x->j_overnota = i;
-				break;
-			}
-		}
-	}
-
-	if (last_over != x->j_overnota) {	// redraw only if it's different
-		jbox_redraw((t_jbox *)x);
-	}
-}
+/*
+void fl_batuta_mousemove(t_fl_batuta *x, t_object *patcherview, t_pt pt, long modifiers){}
 
 void fl_batuta_mouseleave(t_fl_batuta *x, t_object *patcherview, t_pt pt, long modifiers)
 {
-	if (x->onoff) { return; }
+	if (x->isplaying) { return; }
 
-	x->j_overnota = -1;
-	jbox_invalidate_layer((t_object *)x, NULL, ps_bars);
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("bars_layer"));
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("notes_layer"));
 	jbox_redraw((t_jbox *)x);
 }
 
 void fl_batuta_mousedown(t_fl_batuta *x, t_object *patcherview, t_pt pt, long modifiers)
 {
-	if (x->j_overnota >= 0) {
-		x->j_selnota = x->j_overnota;
-	}
+	if (x->isplaying) { return; }
 
-	jbox_invalidate_layer((t_object *)x, NULL, ps_bars);
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("bars_layer"));
+	jbox_invalidate_layer((t_object *)x, NULL, gensym("notes_layer"));
 	jbox_redraw((t_jbox *)x);
 }
-/*
+
 t_max_err fl_batuta_notify(t_fl_batuta *x, t_symbol *s, t_symbol *msg, void *sender, void *data)
 {
 	if (s == gensym("attr_modified")) {

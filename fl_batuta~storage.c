@@ -3,20 +3,24 @@
 /*almacenar---------------------------------------------------------------------------------------------*/
 void fl_batuta_read(t_fl_batuta *x, t_symbol *s)
 {
-	if (!(x->onoff)) {
-		defer(x, (method)fl_batuta_doread, s, 0, NULL);
-	}
+	if (x->isplaying) { object_warn((t_object *)x, "can't open a file while playing"); return; }
+	if (x->isediting) { object_warn((t_object *)x, "can't open a file while editing"); return; }
+	if (x->isloading) { object_warn((t_object *)x, "already reading/writing a file"); return; }
+
+	defer(x, (method)fl_batuta_doread, s, 0, NULL);
 }
 
 void fl_batuta_doread(t_fl_batuta *x, t_symbol *s)
 {
-	t_fourcc filetype = 'TEXT', outtype;
+	t_fourcc filetype = 'DATA', outtype;
 	short numtypes = 1;
 	char filename[MAX_PATH_CHARS];
 	short path;
 	if (s == gensym("")) {      // if no argument supplied, ask for file
-		if (open_dialog(filename, &path, &outtype, &filetype, 1))       // non-zero: user cancelled
+		open_promptset("choose a data file");
+		if (open_dialog(filename, &path, &outtype, &filetype, 1)) {      // non-zero: user cancelled
 			return;
+		}
 	}
 	else {
 		strcpy(filename, s->s_name);    // must copy symbol before calling locatefile_extended
@@ -26,39 +30,49 @@ void fl_batuta_doread(t_fl_batuta *x, t_symbol *s)
 		}
 	}
 	// we have a file
-	object_post((t_object *)x, "archivo %s encontrado", filename);
+	//object_post((t_object *)x, "archivo %s encontrado", filename);
 	fl_batuta_openfile(x, filename, path);
 }
 
 void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 {
+	t_filehandle fh;
+	t_max_err err = MAX_ERR_NONE;
+
+	t_ptr_size count_buf = 0;
+
 	long total_bars;
 	fl_bar *pbar;
 	long total_notas;
-	fl_nota *pnota;
+	fl_note *pnota;
 
-	t_filehandle fh;
-	char **texthandle;
-	long accum;
-	char *linea = (char *)sysmem_newptr(LARGO_MAX_LINEA * sizeof(char));
-	t_atom *av = (t_atom *)sysmem_newptr(100 * sizeof(t_atom));
-	//t_atom *av = NULL;
-	long ac = 0;
-	//char flag = NULL;
-	//atom_alloc_array(100, &ac, &av, &flag);
-	t_max_err err = MAX_ERR_NONE;
+	long rbar;
+	long rtotal_tempos;
+	long rtotal_tsigns;
+	long rtotal_gotos;
+	long rtotal_bars;
+	long rtotal_notes;
+	float rt_curve;
+	float rt_msbeat;
+	float rt_msdurvar;
+	float rt_msstart;
+	short rt_type;
+	float rts_beats;
+	long rgt_reps;
+	long rgt_tobar;
+	float rn_start;
+	long rn_chan;
+	long rn_ac;
+	t_atom *rn_ap = NULL;
 
 	if (path_opensysfile(filename, path, &fh, READ_PERM)) {
 		object_error((t_object *)x, "error opening %s", filename);
 		return;
 	}
-	// allocate some empty memory to receive text
-	texthandle = sysmem_newhandle(0);
-	sysfile_readtextfile(fh, texthandle, 0, TEXT_NULL_TERMINATE);
-	x->largo_texto = sysmem_handlesize(texthandle);
-	//post("the file has %ld characters", x->largo_texto);
 
-	//limpiar listas
+	x->isloading = 1;
+
+	//clear lists
 	total_bars = (long)linklist_getsize(x->l_bars);
 	for (int i = 0; i < total_bars; i++) {
 		pbar = linklist_getindex(x->l_bars, i);
@@ -70,63 +84,159 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 		object_free(pbar->notas);
 	}
 	linklist_clear(x->l_bars);
-
 	linklist_clear(x->l_tempos);
-	linklist_clear(x->l_cifras);
+	linklist_clear(x->l_tsigns);
 	linklist_clear(x->l_gotos);
 
-	accum = 0;
-	while (accum < x->largo_texto) {
-		accum += getlinea(linea, *texthandle + accum, LARGO_MAX_LINEA);
-		my_setparse(&ac, &av, linea);
+	/*tempos-----------------------------------------------------------------------*/
+	//|num tempos| n x [curve(float), ms_beat(float), ms_durvar(float), ms_inicio(float), n_bar(long), type(short)]
+	count_buf = sizeof(long);
+	err = sysfile_read(fh, &count_buf, &rtotal_tempos);
+	if (err) { rtotal_tempos = -1; }
+	if (rtotal_tempos > 0) {
+		
+		for (int i = 0; i < rtotal_tempos; i++) {
+			count_buf = sizeof(float);
+			err = sysfile_read(fh, &count_buf, &rt_curve);
+			//count_buf = sizeof(float);
+			err += sysfile_read(fh, &count_buf, &rt_msbeat);
+			//count_buf = sizeof(float);
+			err += sysfile_read(fh, &count_buf, &rt_msdurvar);
+			//count_buf = sizeof(float);
+			err += sysfile_read(fh, &count_buf, &rt_msstart);
+			count_buf = sizeof(long);
+			err += sysfile_read(fh, &count_buf, &rbar);
+			count_buf = sizeof(short);
+			err += sysfile_read(fh, &count_buf, &rt_type);
 
-		if (atom_gettype(av) == A_SYM) {
-			if (atom_getsym(av) == gensym("compas")) {
-				if (ac == 1) {
-					fl_batuta_nuevo_compas(x, NULL, 0, NULL);
-				}
-				else if (ac == 2) {
-					fl_batuta_nuevo_compas(x, NULL, ac - 1, av + 1);
-				}
-			}
-			else if (atom_getsym(av) == gensym("nota")) {
-				fl_batuta_nueva_nota(x, NULL, ac - 1, av + 1);
-			}
-			else if (atom_getsym(av) == gensym("cifra")) {
-				fl_batuta_nueva_cifra(x, NULL, ac - 1, av + 1);
-			}
-			else if (atom_getsym(av) == gensym("tempo")) {
-				fl_batuta_nuevo_tempo(x, NULL, ac - 1, av + 1);
-			}
-			else if (atom_getsym(av) == gensym("goto")) {
-				fl_batuta_nuevo_goto(x, NULL, ac - 1, av + 1);
-			}
+			if (err) { object_error((t_object *)x, "read error: couldn't read tempos"); sysfile_close(fh); return; }
+
+			err = do_add_tempo(x, rt_type, rbar, rt_msstart, rt_msbeat, rt_msdurvar, rt_type);
+			if(err){ object_error((t_object *)x, "read error: tempo couldn't be added"); }
+		}
+	}
+	else { err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.); }
+	
+	//tsigns-----------------------------------------------------------------------/
+	//|num tsigns| n x [n bar(long), beats(float)]
+	count_buf = sizeof(long);
+	err = sysfile_read(fh, &count_buf, &rtotal_tsigns);
+	if (err) { rtotal_tsigns = -1; }
+	if (rtotal_tsigns > 0) {
+	
+		for (int i = 0; i < rtotal_tsigns; i++) {
+			count_buf = sizeof(long);
+			err = sysfile_read(fh, &count_buf, &rbar);
+			count_buf = sizeof(float);
+			err += sysfile_read(fh, &count_buf, &rts_beats);
+
+			if (err) { object_error((t_object *)x, "read error: couldn't read tempos"); sysfile_close(fh); return; }
+
+			err = do_add_signature(x, rbar, rts_beats);
+			if (err) { object_error((t_object *)x, "read error: tsign couldn't be added"); }
+		}
+	}
+	else { do_add_signature(x, 0, 4.); }
+	
+	//gotos------------------------------------------------------------------------/
+	//|n gotos| n x [n bar(long), total rep(long), to bar(long)]
+	count_buf = sizeof(long);
+	err = sysfile_read(fh, &count_buf, &rtotal_gotos);
+	if (err) { rtotal_gotos = -1; }
+	if (rtotal_gotos > 0) {
+		
+		for (int i = 0; i < rtotal_gotos; i++) {
+			count_buf = sizeof(long);
+			err = sysfile_read(fh, &count_buf, &rbar);
+			//count_buf = sizeof(long);
+			err += sysfile_read(fh, &count_buf, &rgt_reps);
+			//count_buf = sizeof(long);
+			err += sysfile_read(fh, &count_buf, &rgt_tobar);
+
+			if (err) { object_error((t_object *)x, "read error: couldn't read gotos"); sysfile_close(fh); return; }
+
+			err = do_add_goto(x, rbar, rgt_tobar, rgt_reps);
+			if (err) { object_error((t_object *)x, "read error: goto couldn't be added"); }
 		}
 	}
 
-	sysfile_close(fh);
-	sysmem_freehandle(texthandle);
-	sysmem_freeptr(linea);
-	sysmem_freeptr(av);
+	//notes------------------------------------------------------------------------/
+	//|total bars|total notes| n * [nbar, start(float), canal(long), listac(long), listav(atom *)]|
+	count_buf = sizeof(long);
+	err = sysfile_read(fh, &count_buf, &rtotal_bars);
+	if (err) { rtotal_bars = -1; }
+	if (rtotal_bars > 0) {
 
-	object_post((t_object *)x, "fin de lectura");
+		for (int i = 0; i < rtotal_bars; i++) {
+			err = do_add_bar(x, 0);
+			if (err) { object_error((t_object *)x, "read error: bar couldn't be added"); sysfile_close(fh); return; }
+		}
+
+		count_buf = sizeof(long);
+		err = sysfile_read(fh, &count_buf, &rtotal_notes);
+		if (err) { rtotal_notes = -1; }
+		if (rtotal_notes > 0) {
+
+			for (int i = 0; i < rtotal_notes; i++) {
+				count_buf = sizeof(long);
+				err = sysfile_read(fh, &count_buf, &rbar);
+				count_buf = sizeof(float);
+				err += sysfile_read(fh, &count_buf, &rn_start);
+				count_buf = sizeof(long);
+				err += sysfile_read(fh, &count_buf, &rn_chan);
+				//count_buf = sizeof(long);
+				err += sysfile_read(fh, &count_buf, &rn_ac);
+				
+				count_buf = rn_ac * sizeof(t_atom);
+				if(!rn_ap){ rn_ap = (t_atom *)sysmem_newptr(rn_ac * sizeof(t_atom)); }
+				else { rn_ap = (t_atom *)sysmem_resizeptr(rn_ap, rn_ac * sizeof(t_atom)); }
+				if (!rn_ap) { err = -1; }
+				else { err += sysfile_read(fh, &count_buf, rn_ap); }
+
+				if (err) { object_error((t_object *)x, "read error: couldn't read notes"); sysfile_close(fh); return; }
+
+				err = do_add_note(x, rbar, rn_start, rn_chan, rn_ac, rn_ap);
+				if (err) { object_error((t_object *)x, "read error: note couldn't be added"); }
+			}
+		}
+	}
+	else { do_add_bar(x, 0); }
+
+	if (rn_ap) { sysmem_freeptr(rn_ap); }
+
+	sysfile_close(fh);
+
+	fl_batuta_update_tempos(x);
+	fl_batuta_update_signatures(x);
+	fl_batuta_update_gotos(x);
+	fl_batuta_update_notes(x);
+	fl_batuta_update_uibar(x);
+	fl_batuta_update_uitempo(x);
+	fl_batuta_update_uigoto(x);
+
+	object_post((t_object *)x, "file opened with no errors");
+	x->isloading = 0;
 }
 
 void fl_batuta_write(t_fl_batuta *x, t_symbol *s)
 {
+	if (x->isplaying) { object_warn((t_object *)x, "can't write a file while playing"); return; }
+	if (x->isediting) { object_warn((t_object *)x, "can't write a file while editing"); return; }
+	if (x->isloading) { object_warn((t_object *)x, "already reading/writing a file"); return; }
+
 	defer(x, (method)fl_batuta_dowrite, s, 0, NULL);
 }
 
 void fl_batuta_dowrite(t_fl_batuta *x, t_symbol *s)
 {
-	t_fourcc filetype = 'TEXT', outtype;
+	t_fourcc filetype = 'DATA', outtype;
 	short numtypes = 1;
 	char filename[MAX_FILENAME_CHARS];
 	short path;
 
 	strcpy(filename, "untitled");
 	if (s == gensym("")) {      // if no argument supplied, ask for file
-		//saveas_promptset("elije el archivo");
+		saveas_promptset("choose a data file");
 		if (saveasdialog_extended(filename, &path, &outtype, &filetype, numtypes)) {     // non-zero: user cancelled
 			return;
 		}
@@ -140,114 +250,176 @@ void fl_batuta_dowrite(t_fl_batuta *x, t_symbol *s)
 
 void fl_batuta_writefile(t_fl_batuta *x, char *filename, short path)
 {
-	t_fourcc type = 'TEXT';
-	long linea_len = 0;
-	char *linea = (char *)sysmem_newptr(LARGO_MAX_LINEA * sizeof(char));
-	t_handle h = sysmem_newhandle(0);
+	t_fourcc type = 'DATA';
 	t_max_err err;
 	t_filehandle fh;
-	fl_bar *pbar;
-	long total_bars;
-	fl_nota *pnota;
-	long total_notas;
-	t_atom a_nota[3];
-	fl_cifra *pcifra;
-	long total_cifras;
-	t_atom a_cifra[3];
 	fl_tempo *ptempo;
-	long total_tempos;
-	t_atom a_tempo[3];
-	short tem_type;
-	t_atom a_tempoaux[1];
+	fl_tsign *ptsign;
 	fl_goto *pgoto;
+	fl_bar *pbar;
+	fl_note *pnote;
+	t_atom *patom;
+	long total_tempos;
+	long total_tsigns;
 	long total_gotos;
-	t_atom a_goto[3];
+	long total_notes_all;
+	long notas_bar;
+	long total_bars;
+	long lnumof = 0;
+	short snumof = 0;
+	float fnumof = 0.f;
+	t_ptr_size count_buf = 0;
 
-	total_bars = (long)linklist_getsize(x->l_bars);
-	for (int i = 0; i < total_bars; i++) {
-		sysmem_ptrandhand("compas\r\n", h, 8 * sizeof(char));
-		pbar = linklist_getindex(x->l_bars, i);
-		total_notas = (long)linklist_getsize(pbar->notas);
-		for (int k = 0; k < total_notas; k++) {
-			sysmem_ptrandhand("nota ", h, 5 * sizeof(char));
-			pnota = linklist_getindex(pbar->notas, k);
-			atom_setlong(a_nota, i);//compas
-			atom_setfloat(a_nota + 1, pnota->b_inicio);//inicio
-			atom_setlong(a_nota + 2, pnota->canal);//canal
-			my_gettext(3, a_nota, &linea_len, &linea, 0);
-			sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
+	err = path_createsysfile(filename, path, 'DATA', &fh);
+	if (err) { return; }
+	
+	x->isloading = 1;
+	
+	/*tempos-----------------------------------------------------------------------*/
+	//num tempos: n x [curve(float), ms_beat(float), ms_durvar(float), ms_inicio(float), n_bar(long), type(short)]
+	count_buf = sizeof(long);
+	total_tempos = lnumof = (long)linklist_getsize(x->l_tempos);
+	err = sysfile_write(fh, &count_buf, &lnumof);
+	if (err) { object_error((t_object *)x, "write error: couldn't write tempos"); sysfile_close(fh); return; }
+	if (total_tempos > 0) {
+		for (int i = 0; i < total_tempos; i++) {
+			ptempo = linklist_getindex(x->l_tempos, i);
+			//curve(float)
+			count_buf = sizeof(float);
+			fnumof = ptempo->curva;
+			err = sysfile_write(fh, &count_buf, &fnumof);
+			//ms_beat(float)
+			//count_buf = sizeof(float);
+			fnumof = ptempo->ms_beat;
+			err += sysfile_write(fh, &count_buf, &fnumof);
+			//ms_durvar(float)
+			//count_buf = sizeof(float);
+			fnumof = ptempo->ms_durvar;
+			err += sysfile_write(fh, &count_buf, &fnumof);
+			//ms_inicio(float)
+			//count_buf = sizeof(float);
+			fnumof = ptempo->ms_inicio;
+			err += sysfile_write(fh, &count_buf, &fnumof);
+			//n_bar(long)
+			count_buf = sizeof(long);
+			lnumof = ptempo->n_bar;
+			err += sysfile_write(fh, &count_buf, &lnumof);
+			//type(short)
+			count_buf = sizeof(short);
+			snumof = ptempo->type;
+			err += sysfile_write(fh, &count_buf, &snumof);
 
-			sysmem_ptrandhand(" ", h, sizeof(char));
-			my_gettext((pnota->cnota) - 1, (pnota->pnota) + 1, &linea_len, &linea, 0);//info
-			sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
-			sysmem_ptrandhand("\r\n", h, 2 * sizeof(char));
+			if (err) { object_error((t_object *)x, "write error: couldn't write tempos"); sysfile_close(fh); return; }
+		}
+	}
+	
+	//time signature----------------------------------------------------------/
+	//|num tsigns| n x [n bar(long), beats(float)]
+	count_buf = sizeof(long);
+	total_tsigns = lnumof = (long)linklist_getsize(x->l_tsigns);
+	err = sysfile_write(fh, &count_buf, &lnumof);
+	if (err) { object_error((t_object *)x, "write error: couldn't write tsigns"); sysfile_close(fh); return; }
+	if (total_tsigns > 0) {
+		for (int i = 0; i < total_tsigns; i++) {
+			//n bar(long)
+			ptsign = linklist_getindex(x->l_tsigns, i);
+			count_buf = sizeof(long);
+			lnumof = ptsign->n_bar;
+			err = sysfile_write(fh, &count_buf, &lnumof);
+			//beats(float)	
+			count_buf = sizeof(float);
+			fnumof = ptsign->beats;
+			err += sysfile_write(fh, &count_buf, &fnumof);
+
+			if (err) { object_error((t_object *)x, "write error: couldn't write tsigns"); sysfile_close(fh); return; }
 		}
 	}
 
-	total_cifras = (long)linklist_getsize(x->l_cifras);
-	for (int i = 0; i < total_cifras; i++) {
-		sysmem_ptrandhand("cifra ", h, 6 * sizeof(char));
+	//gotos-------------------------------------------------------------------/
+	//|n gotos| n x [n bar(long), total rep(long), to bar(long)]
+	count_buf = sizeof(long);
+	total_gotos = lnumof = (long)linklist_getsize(x->l_gotos);
+	err = sysfile_write(fh, &count_buf, &lnumof);
+	if (err) { object_error((t_object *)x, "write error: couldn't write gotos"); sysfile_close(fh); return; }
+	if (total_gotos > 0) {
+		for (int i = 0; i < total_gotos; i++) {
+			pgoto = linklist_getindex(x->l_gotos, i);
+			// n bar(long)
+			count_buf = sizeof(long);
+			lnumof = pgoto->n_bar;
+			err = sysfile_write(fh, &count_buf, &lnumof);
+			// total rep(long)
+			//count_buf = sizeof(long);
+			lnumof = pgoto->total_rep;
+			err += sysfile_write(fh, &count_buf, &lnumof);
+			// to bar(long)
+			//count_buf = sizeof(long);
+			lnumof = pgoto->to_bar;
+			err += sysfile_write(fh, &count_buf, &lnumof);
 
-		pcifra = linklist_getindex(x->l_cifras, i);
-		atom_setlong(a_cifra, pcifra->n_bar);//compas
-		atom_setfloat(a_cifra + 1, pcifra->negras);//num
-		atom_setlong(a_cifra + 2, 4);//den
-		my_gettext(3, a_cifra, &linea_len, &linea, 0);
-		sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
-		sysmem_ptrandhand("\r\n", h, 2 * sizeof(char));
-	}
-
-	total_tempos = (long)linklist_getsize(x->l_tempos);
-	for (int i = 0; i < total_tempos; i++) {
-		sysmem_ptrandhand("tempo ", h, 6 * sizeof(char));
-
-		ptempo = linklist_getindex(x->l_tempos, i);
-		tem_type = ptempo->type;
-		atom_setlong(a_tempo, ptempo->n_bar);//compas
-		atom_setfloat(a_tempo + 1, ptempo->ms_inicio);//inicio
-		atom_setfloat(a_tempo + 2, ptempo->ms_beat);//tempo
-		my_gettext(3, a_tempo, &linea_len, &linea, 0);
-		sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
-
-		if (tem_type > 0) {
-			sysmem_ptrandhand(" ", h, sizeof(char));
-			atom_setfloat(a_tempoaux, ptempo->ms_durvar);//durac dtempo
-			my_gettext(1, a_tempoaux, &linea_len, &linea, 0);
-			sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
+			if (err) { object_error((t_object *)x, "write error: couldn't write gotos"); sysfile_close(fh); return; }
 		}
-		else if (tem_type == 2) {
-			sysmem_ptrandhand(" ", h, sizeof(char));
-			atom_setfloat(a_tempoaux, ptempo->curva);//curva
-			my_gettext(1, a_tempoaux, &linea_len, &linea, 0);
-			sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
+	}
+
+	//notes------------------------------------------------------------------------/
+	//|total bars|total notes| n * [nbar, start(float), canal(long), listac(long), listav(atom)]|
+	count_buf = sizeof(long);
+	total_bars = lnumof = (long)linklist_getsize(x->l_bars);
+	err = sysfile_write(fh, &count_buf, &lnumof); //total bars
+	if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
+	if (total_bars > 0) {
+
+		total_notes_all = 0;
+		notas_bar = 0;
+
+		for (int i = 0; i < total_bars; i++) {
+			pbar = linklist_getindex(x->l_bars, i);
+			total_notes_all += (long)linklist_getsize(pbar->notas);
 		}
-		sysmem_ptrandhand("\r\n", h, 2 * sizeof(char));
+
+		//total notes
+		//count_buf = sizeof(long);
+		lnumof = total_notes_all;
+		err = sysfile_write(fh, &count_buf, &lnumof); 
+		if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
+		if (total_notes_all > 0) {
+			
+			long accum = 0;
+			for (int i = 0; i < total_bars; i++) {
+				pbar = linklist_getindex(x->l_bars, i);
+				notas_bar = (long)linklist_getsize(pbar->notas);
+
+				for (int j = 0; j < notas_bar; j++) {
+					pnote = linklist_getindex(pbar->notas, j);
+					//n bar
+					count_buf = sizeof(long);
+					lnumof = i;
+					err = sysfile_write(fh, &count_buf, &lnumof);
+					//beat start
+					count_buf = sizeof(float);
+					fnumof = pnote->b_inicio;
+					err += sysfile_write(fh, &count_buf, &fnumof);
+					//chan
+					count_buf = sizeof(long);
+					lnumof = pnote->canal;
+					err += sysfile_write(fh, &count_buf, &lnumof);
+					//ac
+					//count_buf = sizeof(long);
+					lnumof = pnote->cnota;
+					err += sysfile_write(fh, &count_buf, &lnumof);
+					//av
+					count_buf = pnote->cnota * sizeof(t_atom);
+					patom = pnote->pnota;
+					err += sysfile_write(fh, &count_buf, patom);
+
+					if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
+				}
+			}
+		}
 	}
-
-	total_gotos = (long)linklist_getsize(x->l_gotos);
-	for (int i = 0; i < total_gotos; i++) {
-		sysmem_ptrandhand("goto ", h, 5 * sizeof(char));
-
-		pgoto = linklist_getindex(x->l_gotos, i);
-		atom_setlong(a_goto, pgoto->n_bar);
-		atom_setlong(a_goto + 1, pgoto->to_bar);
-		atom_setlong(a_goto + 2, pgoto->total_rep);
-		my_gettext(3, a_goto, &linea_len, &linea, 0);
-		sysmem_ptrandhand(linea, h, (linea_len - 1) * sizeof(char));
-		sysmem_ptrandhand("\r\n", h, 2 * sizeof(char));
-	}
-
-	sysmem_ptrandhand("---", h, 4 * sizeof(char));
-
-	err = path_createsysfile(filename, path, type, &fh);
-	if (err) {
-		return;
-	}
-	err = sysfile_writetextfile(fh, h, TEXT_LB_PC);
 
 	sysfile_close(fh);
-	sysmem_freehandle(h);
-	sysmem_freeptr(linea);
 
-	fl_batuta_actualizar(x);
+	object_post((t_object *)x, "file saved with no errors");
+	x->isloading = 0;
 }
