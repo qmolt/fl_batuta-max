@@ -37,15 +37,19 @@ A compiled external (.mxe64) and a help file (.maxhelp) are provided in the exam
 **0.2** 
 - Error handling for 'out of memory' cases and linklist function error returns
 - t_atomarray replaced with t_atom dynamic memory allocation
+
 **0.3**
 - 'rec' function added
 - 'quantize' and 'human' functions added
+
 **0.4** 
 - GUI added
 - Storage in text file
+
 **0.5** 
 - Texfield and command instructions added
 - Note selection with mouse
+
 **0.6** 
 - Comments and variables translated to english
 - A default bar/tempo/time signature is added if element in first bar is deleted
