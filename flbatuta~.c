@@ -1,4 +1,4 @@
-#include "fl_batuta~.h"
+#include "flbatuta~.h"
 #include "common/commonsyms.c"	
 
 void ext_main(void *r)
@@ -7,7 +7,7 @@ void ext_main(void *r)
 
 	common_symbols_init();
 	
-	c = class_new("fl_batuta~", 
+	c = class_new("flbatuta~", 
 		(method)fl_batuta_new, 
 		(method)fl_batuta_free, 
 		sizeof(t_fl_batuta), (method)NULL, A_GIMME, 0L);

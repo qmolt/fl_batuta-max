@@ -119,17 +119,17 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="fl_batuta~.c" />
-    <ClCompile Include="fl_batuta~audio.c" />
-    <ClCompile Include="fl_batuta~aux.c" />
-    <ClCompile Include="fl_batuta~edit.c" />
-    <ClCompile Include="fl_batuta~perform.c" />
-    <ClCompile Include="fl_batuta~storage.c" />
-    <ClCompile Include="fl_batuta~ui.c" />
-    <ClCompile Include="fl_expand~text.c" />
+    <ClCompile Include="flbatuta~.c" />
+    <ClCompile Include="flbatuta~audio.c" />
+    <ClCompile Include="flbatuta~aux.c" />
+    <ClCompile Include="flbatuta~edit.c" />
+    <ClCompile Include="flbatuta~perform.c" />
+    <ClCompile Include="flbatuta~storage.c" />
+    <ClCompile Include="flbatuta~ui.c" />
+    <ClCompile Include="flbatuta~text.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="fl_batuta~.h" />
+    <ClInclude Include="flbatuta~.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
