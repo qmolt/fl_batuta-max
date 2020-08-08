@@ -1,6 +1,6 @@
 # About
 
-fl_batuta~ is an audio external for Max/MSP written in C. For Windows only (for now). 'Batuta' is the spanish word for 'baton', the stick conductors use when directing a music ensamble. This external allows you to store and organize messages to play them in a chronological sequence similar to a music tracker.
+flbatuta~ is an audio external for Max/MSP written in C. For Windows only (for now). 'Batuta' is the spanish word for 'baton', the stick conductors use when directing a music ensamble. This external allows you to store and organize messages to play them in a chronological sequence similar to a music tracker.
 In the same way a music score works, the external organizes time in bars, each bar has a time signature which divides the bar in beats, and the speed is controled by tempo. Repeat signs are called 'gotos' and have the same purpose. The bar is also divided in channels to identify every group of messages that will be called notes. The main differences with musical theory are that: 
 - bars are measured from beat 0.0 instead of 1, much like a temporal ruler (also every indexation starts from 0) 
 - the time signature isn't a ratio that uses different kinds of figures, it's just a fixed amount of beats that can also be a decimal number. i.e: 3.5 beats -> 7/8 time signature 
