@@ -113,7 +113,7 @@ void fl_batuta_enter(t_fl_batuta *x)
 			bar_act = x->jn_bar;
 
 			if (param == gensym("bar") || param == gensym("b")) {
-				if (bar_act < 0 || bar_act >= total_bars) { object_warn((t_object *)x, "bar index out of bounds"); return; }
+				if (bar_act < 0 || bar_act > total_bars) { object_warn((t_object *)x, "bar index out of bounds"); return; }
 				if (accion == gensym("-n") && ac == 2) {
 					err = do_add_bar(x, bar_act + 1);
 					if (err) { object_error((t_object *)x, "bar couldn't be added"); return; }
