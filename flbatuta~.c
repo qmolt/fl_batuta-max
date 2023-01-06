@@ -210,6 +210,7 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->isediting = 0;
 	
 	x->largo_texto = 0;
+	x->max_buf_len = MAX_BUF_LEN;
 
 	//crear lista tsigns
 	x->l_tsigns = linklist_new();

@@ -12,12 +12,12 @@ void fl_batuta_read(t_fl_batuta *x, t_symbol *s)
 
 void fl_batuta_doread(t_fl_batuta *x, t_symbol *s)
 {
-	t_fourcc filetype = 'DATA', outtype;
+	t_fourcc filetype = 'JSON', outtype = 'JSON';
 	short numtypes = 1;
 	char filename[MAX_PATH_CHARS];
 	short path;
 	if (s == gensym("")) {      // if no argument supplied, ask for file
-		open_promptset("choose a data file");
+		open_promptset("choose a JSON file");
 		if (open_dialog(filename, &path, &outtype, &filetype, 1)) {      // non-zero: user cancelled
 			return;
 		}
@@ -29,41 +29,52 @@ void fl_batuta_doread(t_fl_batuta *x, t_symbol *s)
 			return;
 		}
 	}
-	// we have a file
-	//object_post((t_object *)x, "archivo %s encontrado", filename);
+	object_post((t_object *)x, "loading: %s ", filename);
 	fl_batuta_openfile(x, filename, path);
 }
 
 void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 {
 	t_filehandle fh;
+	char *buffer;
+	t_ptr_size zusize;
+	long size;
 	t_max_err err = MAX_ERR_NONE;
 
-	t_ptr_size count_buf = 0;
+	struct json_object *jobj, *tmp, *tmpidx, *tmpval, *tmpcurve;
+	json_type val_type;
 
-	long total_bars;
 	fl_bar *pbar;
 	long total_notas;
 	fl_note *pnota;
 
-	long rbar;
-	long rtotal_tempos;
-	long rtotal_tsigns;
-	long rtotal_gotos;
-	long rtotal_bars;
-	long rtotal_notes;
-	float rt_curve;
-	float rt_msbeat;
-	float rt_msdurvar;
-	float rt_msstart;
-	short rt_type;
-	float rts_beats;
-	long rgt_reps;
-	long rgt_tobar;
-	float rn_start;
-	long rn_chan;
-	long rn_ac;
-	t_atom *rn_ap = NULL;
+	long total_bars = 0;
+	long total_tempos = 0;
+	long total_tsigns = 0;
+	long total_gotos = 0;
+	long total_notes = 0;
+
+	long addcounter;
+
+	long t_bar;
+	float t_curve;
+	float t_msbeat;
+	float t_msdurvar;
+	float t_msstart;
+
+	long ts_bar;
+	float ts_beats;
+
+	long g_bar;
+	long g_tobar;
+	long g_rep;
+	
+	long n_bar;
+	float n_start;
+	long n_chan;
+	long n_ac = 128;
+	t_atom *n_ap = (t_atom *)sysmem_newptr(128 * sizeof(t_atom *));
+	char *n_message;
 
 	if (path_opensysfile(filename, path, &fh, READ_PERM)) {
 		object_error((t_object *)x, "error opening %s", filename);
@@ -74,10 +85,10 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 
 	//clear lists
 	total_bars = (long)linklist_getsize(x->l_bars);
-	for (int i = 0; i < total_bars; i++) {
+	for (long i = 0; i < total_bars; i++) {
 		pbar = linklist_getindex(x->l_bars, i);
 		total_notas = (long)linklist_getsize(pbar->notas);
-		for (int k = 0; k < total_notas; k++) {
+		for (long k = 0; k < total_notas; k++) {
 			pnota = linklist_getindex(pbar->notas, k);
 			sysmem_freeptr(pnota->pnota);
 		}
@@ -88,123 +99,252 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	linklist_clear(x->l_tsigns);
 	linklist_clear(x->l_gotos);
 
-	/*tempos-----------------------------------------------------------------------*/
-	//|num tempos| n x [curve(float), ms_beat(float), ms_durvar(float), ms_inicio(float), n_bar(long), type(short)]
-	count_buf = sizeof(long);
-	err = sysfile_read(fh, &count_buf, &rtotal_tempos);
-	if (err) { rtotal_tempos = -1; }
-	if (rtotal_tempos > 0) {
-		
-		for (int i = 0; i < rtotal_tempos; i++) {
-			count_buf = sizeof(float);
-			err = sysfile_read(fh, &count_buf, &rt_curve);
-			//count_buf = sizeof(float);
-			err += sysfile_read(fh, &count_buf, &rt_msbeat);
-			//count_buf = sizeof(float);
-			err += sysfile_read(fh, &count_buf, &rt_msdurvar);
-			//count_buf = sizeof(float);
-			err += sysfile_read(fh, &count_buf, &rt_msstart);
-			count_buf = sizeof(long);
-			err += sysfile_read(fh, &count_buf, &rbar);
-			count_buf = sizeof(short);
-			err += sysfile_read(fh, &count_buf, &rt_type);
+	total_bars = 0;
+	total_notes = 0;
 
-			if (err) { object_error((t_object *)x, "read error: couldn't read tempos"); sysfile_close(fh); return; }
+	//--------------------------------------------------------
+	//parse JSON
+	sysfile_geteof(fh, &zusize);
+	size = zusize;
+	buffer = (char *)sysmem_newptr(size);
+	if (!buffer) { object_error((t_object *)x, "out of memory to read file"); return; }
+	sysfile_read(fh, &zusize, buffer);
+	sysfile_close(fh);
 
-			err = do_add_tempo(x, rt_type, rbar, rt_msstart, rt_msbeat, rt_msdurvar, rt_type);
-			if(err){ object_error((t_object *)x, "read error: tempo couldn't be added"); }
-		}
-	}
-	else { err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.); }
-	
-	//tsigns-----------------------------------------------------------------------/
-	//|num tsigns| n x [n bar(long), beats(float)]
-	count_buf = sizeof(long);
-	err = sysfile_read(fh, &count_buf, &rtotal_tsigns);
-	if (err) { rtotal_tsigns = -1; }
-	if (rtotal_tsigns > 0) {
-	
-		for (int i = 0; i < rtotal_tsigns; i++) {
-			count_buf = sizeof(long);
-			err = sysfile_read(fh, &count_buf, &rbar);
-			count_buf = sizeof(float);
-			err += sysfile_read(fh, &count_buf, &rts_beats);
-
-			if (err) { object_error((t_object *)x, "read error: couldn't read tempos"); sysfile_close(fh); return; }
-
-			err = do_add_signature(x, rbar, rts_beats);
-			if (err) { object_error((t_object *)x, "read error: tsign couldn't be added"); }
-		}
-	}
-	else { do_add_signature(x, 0, 4.); }
-	
-	//gotos------------------------------------------------------------------------/
-	//|n gotos| n x [n bar(long), total rep(long), to bar(long)]
-	count_buf = sizeof(long);
-	err = sysfile_read(fh, &count_buf, &rtotal_gotos);
-	if (err) { rtotal_gotos = -1; }
-	if (rtotal_gotos > 0) {
-		
-		for (int i = 0; i < rtotal_gotos; i++) {
-			count_buf = sizeof(long);
-			err = sysfile_read(fh, &count_buf, &rbar);
-			//count_buf = sizeof(long);
-			err += sysfile_read(fh, &count_buf, &rgt_reps);
-			//count_buf = sizeof(long);
-			err += sysfile_read(fh, &count_buf, &rgt_tobar);
-
-			if (err) { object_error((t_object *)x, "read error: couldn't read gotos"); sysfile_close(fh); return; }
-
-			err = do_add_goto(x, rbar, rgt_tobar, rgt_reps);
-			if (err) { object_error((t_object *)x, "read error: goto couldn't be added"); }
-		}
+	jobj = json_tokener_parse(buffer);
+	if (!jobj) {
+		object_error((t_object *)x, "couldn't parse JSON file");
+		sysmem_freeptr(buffer);
+		return;
 	}
 
-	//notes------------------------------------------------------------------------/
-	//|total bars|total notes| n * [nbar, start(float), canal(long), listac(long), listav(atom *)]|
-	count_buf = sizeof(long);
-	err = sysfile_read(fh, &count_buf, &rtotal_bars);
-	if (err) { rtotal_bars = -1; }
-	if (rtotal_bars > 0) {
-
-		for (int i = 0; i < rtotal_bars; i++) {
+	//-----------------------------------------------------------------
+	//bars
+	if (json_object_object_get_ex(jobj, "bars", &tmp)) {
+		val_type = json_object_get_type(tmp);
+		if (val_type == json_type_int) {
+			total_bars = json_object_get_int64(tmp);
+		}
+	}
+	if (total_bars > 0) {
+		addcounter = 0;
+		for (long i = 0; i < total_bars; i++) {
 			err = do_add_bar(x, 0);
-			if (err) { object_error((t_object *)x, "read error: bar couldn't be added"); sysfile_close(fh); return; }
+			if (err) { object_error((t_object *)x, "read error: bar couldn't be added"); }
+			else { addcounter++; }
 		}
+	}
+	else {
+		err = do_add_bar(x, 0);
+		if (err) { object_error((t_object *)x, "read error: bar couldn't be added"); }
+		else { addcounter = 1; }
+	}
+	object_post((t_object *)x, "bars added: %d of %d", addcounter, total_bars);
 
-		count_buf = sizeof(long);
-		err = sysfile_read(fh, &count_buf, &rtotal_notes);
-		if (err) { rtotal_notes = -1; }
-		if (rtotal_notes > 0) {
+	//-----------------------------------------------------------------
+	//tempo
+	if (json_object_object_get_ex(jobj, "tempo", &tmp)) {
+		val_type = json_object_get_type(tmp);
+		if (val_type == json_type_array) {
+			total_tempos = json_object_array_length(tmp);
+			addcounter = 0;
+			
+			if (total_tempos > 0) {
+				for (long i = 0; i < total_tempos; i++) {
+					tmpidx = json_object_array_get_idx(tmp, i);
 
-			for (int i = 0; i < rtotal_notes; i++) {
-				count_buf = sizeof(long);
-				err = sysfile_read(fh, &count_buf, &rbar);
-				count_buf = sizeof(float);
-				err += sysfile_read(fh, &count_buf, &rn_start);
-				count_buf = sizeof(long);
-				err += sysfile_read(fh, &count_buf, &rn_chan);
-				//count_buf = sizeof(long);
-				err += sysfile_read(fh, &count_buf, &rn_ac);
-				
-				count_buf = rn_ac * sizeof(t_atom);
-				if(!rn_ap){ rn_ap = (t_atom *)sysmem_newptr(rn_ac * sizeof(t_atom)); }
-				else { rn_ap = (t_atom *)sysmem_resizeptr(rn_ap, rn_ac * sizeof(t_atom)); }
-				if (!rn_ap) { err = -1; }
-				else { err += sysfile_read(fh, &count_buf, rn_ap); }
+					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						t_bar = json_object_get_int64(tmpval);
+					}
+					else { continue; }
 
-				if (err) { object_error((t_object *)x, "read error: couldn't read notes"); sysfile_close(fh); return; }
+					if (json_object_object_get_ex(tmpidx, "msbeat", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_double) { continue; }
+						t_msbeat = json_object_get_double(tmpval);
+					}
+					else { continue; }
 
-				err = do_add_note(x, rbar, rn_start, rn_chan, rn_ac, rn_ap);
-				if (err) { object_error((t_object *)x, "read error: note couldn't be added"); }
+					if (json_object_object_get_ex(tmpidx, "curve", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type == json_type_array) {
+							if (json_object_array_length(tmpval) != 3) { continue; }
+							else {
+								tmpcurve = json_object_array_get_idx(tmpval, 0);
+								val_type = json_object_get_type(tmpcurve);
+								if (val_type != json_type_double) { continue; }
+								t_msstart = json_object_get_double(tmpcurve);
+
+								tmpcurve = json_object_array_get_idx(tmpval, 1);
+								val_type = json_object_get_type(tmpcurve);
+								if (val_type != json_type_double) { continue; }
+								t_msdurvar = json_object_get_double(tmpcurve);
+
+								tmpcurve = json_object_array_get_idx(tmpval, 2);
+								val_type = json_object_get_type(tmpcurve);
+								if (val_type != json_type_double) { continue; }
+								t_curve = json_object_get_double(tmpcurve);
+							}
+						}
+					}
+					else { continue; }
+			
+					err = do_add_tempo(x, 1, t_bar, t_msstart, t_msbeat, t_msdurvar, t_curve);
+					if (err) { object_error((t_object *)x, "read error: tempo couldn't be added"); }
+					else { addcounter++; }
+				}
+			}
+			else {
+				err = do_add_tempo(x, 1, 0, 0., 500., 0., 0.);
+				if (err) { object_error((t_object *)x, "read error: tempo couldn't be added"); }
 			}
 		}
 	}
-	else { do_add_bar(x, 0); }
+	object_post((t_object *)x, "tempos added: %d of %d", addcounter, total_tempos);
 
-	if (rn_ap) { sysmem_freeptr(rn_ap); }
+	//-----------------------------------------------------------------
+	//tsign
+	if (json_object_object_get_ex(jobj, "tsign", &tmp)) {
+		val_type = json_object_get_type(tmp);
+		if (val_type == json_type_array) {
+			total_tsigns = json_object_array_length(tmp);
+			addcounter = 0;
 
-	sysfile_close(fh);
+			if (total_tsigns > 0) {
+				for (long i = 0; i < total_tsigns; i++) {
+					tmpidx = json_object_array_get_idx(tmp, i);
+
+					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						ts_bar = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "beats", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_double) { continue; }
+						ts_beats = json_object_get_double(tmpval);
+					}
+					else { continue; }
+
+					err = do_add_signature(x, ts_bar, ts_beats);
+					if (err) { object_error((t_object *)x, "read error: tsign couldn't be added"); }
+					else { addcounter++; }
+				}
+			}
+			else {
+				err = do_add_signature(x, 0, 4.);
+				if (err) { object_error((t_object *)x, "read error: tsign couldn't be added"); }
+			}
+		}
+	}
+	object_post((t_object *)x, "tsigns added: %d of %d", addcounter, total_tsigns);
+
+	//-----------------------------------------------------------------
+	//goto
+	if (json_object_object_get_ex(jobj, "goto", &tmp)) {
+		val_type = json_object_get_type(tmp);
+		if (val_type == json_type_array) {
+			total_gotos = json_object_array_length(tmp);
+			addcounter = 0;
+
+			if (total_gotos > 0) {
+				for (long i = 0; i < total_gotos; i++) {
+					tmpidx = json_object_array_get_idx(tmp, i);
+
+					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						g_bar = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "tobar", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						g_tobar = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "rep", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						g_rep = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					err = do_add_goto(x, g_bar, g_tobar, g_rep);
+					if (err) { object_error((t_object *)x, "read error: goto couldn't be added"); }
+					else { addcounter++; }
+				}
+			}
+		}
+	}
+	object_post((t_object *)x, "gotos added: %d of %d", addcounter, total_gotos);
+	
+	//-----------------------------------------------------------------
+	//note
+	if (json_object_object_get_ex(jobj, "note", &tmp)) {
+		val_type = json_object_get_type(tmp);
+		if (val_type == json_type_array) {
+			total_notes = json_object_array_length(tmp);
+			addcounter = 0;
+
+			if (total_notes > 0) {
+				for (long i = 0; i < total_notes; i++) {
+					tmpidx = json_object_array_get_idx(tmp, i);
+
+					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						n_bar = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "start", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_double) { continue; }
+						n_start = json_object_get_double(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "chan", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_int) { continue; }
+						n_chan = json_object_get_int64(tmpval);
+					}
+					else { continue; }
+
+					if (json_object_object_get_ex(tmpidx, "message", &tmpval)) {
+						val_type = json_object_get_type(tmpval);
+						if (val_type != json_type_string) { continue; }
+						n_message = json_object_get_string(tmpval);
+
+						err = atom_setparse(&n_ac, &n_ap, n_message);
+						if (!err) {
+							if (!n_ap) { n_ap = (t_atom *)sysmem_newptr(n_ac * sizeof(t_atom)); }
+							else { n_ap = (t_atom *)sysmem_resizeptr(n_ap, n_ac * sizeof(t_atom)); }
+							
+							err = do_add_note(x, n_bar, n_start, n_chan, n_ac, n_ap);
+							if (err) { object_error((t_object *)x, "read error: note couldn't be added"); }
+							else { addcounter++; }
+						}
+					}
+					else { continue; }
+				}
+			}
+		}
+	}
+	if (n_ap) { sysmem_freeptr(n_ap); }
+	
+	object_post((t_object *)x, "notes added: %d of %d", addcounter, total_notes);
+	
+	//-----------------------------------------------------------------
+	sysmem_freeptr(buffer);
+	sysmem_freeptr(n_ap);
 
 	fl_batuta_update_tempos(x);
 	fl_batuta_update_signatures(x);
@@ -229,14 +369,14 @@ void fl_batuta_write(t_fl_batuta *x, t_symbol *s)
 
 void fl_batuta_dowrite(t_fl_batuta *x, t_symbol *s)
 {
-	t_fourcc filetype = 'DATA', outtype;
+	t_fourcc filetype = 'JSON', outtype;
 	short numtypes = 1;
 	char filename[MAX_FILENAME_CHARS];
 	short path;
 
-	strcpy(filename, "untitled");
+	strcpy(filename, "untitled.json");
 	if (s == gensym("")) {      // if no argument supplied, ask for file
-		saveas_promptset("choose a data file");
+		saveas_promptset("choose a JSON file");
 		if (saveasdialog_extended(filename, &path, &outtype, &filetype, numtypes)) {     // non-zero: user cancelled
 			return;
 		}
@@ -250,7 +390,7 @@ void fl_batuta_dowrite(t_fl_batuta *x, t_symbol *s)
 
 void fl_batuta_writefile(t_fl_batuta *x, char *filename, short path)
 {
-	t_fourcc type = 'DATA';
+	t_fourcc type = 'JSON';
 	t_max_err err;
 	t_filehandle fh;
 	fl_tempo *ptempo;
@@ -258,168 +398,203 @@ void fl_batuta_writefile(t_fl_batuta *x, char *filename, short path)
 	fl_goto *pgoto;
 	fl_bar *pbar;
 	fl_note *pnote;
-	t_atom *patom;
+
+	long total_bars;
 	long total_tempos;
 	long total_tsigns;
 	long total_gotos;
-	long total_notes_all;
-	long notas_bar;
-	long total_bars;
-	long lnumof = 0;
-	short snumof = 0;
-	float fnumof = 0.f;
-	t_ptr_size count_buf = 0;
+	long total_notes_bar;
+	long total_notes;
+	
+	t_atom *n_ap;
+	long n_ac;
+	char *text = (char *)sysmem_newptr(512 * sizeof(char));
+	long textsize = 512;
 
-	err = path_createsysfile(filename, path, 'DATA', &fh);
-	if (err) { return; }
+	struct json_object *object, *atempos, *atsigns, *agotos, *anotes;
+	struct json_object *tmp, *tmptempo, *tmptempoc_array, *tmptsign, *tmpgoto, *tmpnote;
+	long count_buf = 0;
+
+	long jj;
+
+	err = path_createsysfile(filename, path, type, &fh);
+	if (err) { object_error((t_object *)x, "couldn't create a JSON file"); return; }
 	
 	x->isloading = 1;
 	
-	/*tempos-----------------------------------------------------------------------*/
-	//num tempos: n x [curve(float), ms_beat(float), ms_durvar(float), ms_inicio(float), n_bar(long), type(short)]
-	count_buf = sizeof(long);
-	total_tempos = lnumof = (long)linklist_getsize(x->l_tempos);
-	err = sysfile_write(fh, &count_buf, &lnumof);
-	if (err) { object_error((t_object *)x, "write error: couldn't write tempos"); sysfile_close(fh); return; }
-	if (total_tempos > 0) {
-		for (int i = 0; i < total_tempos; i++) {
-			ptempo = linklist_getindex(x->l_tempos, i);
-			//curve(float)
-			count_buf = sizeof(float);
-			fnumof = ptempo->curva;
-			err = sysfile_write(fh, &count_buf, &fnumof);
-			//ms_beat(float)
-			//count_buf = sizeof(float);
-			fnumof = ptempo->ms_beat;
-			err += sysfile_write(fh, &count_buf, &fnumof);
-			//ms_durvar(float)
-			//count_buf = sizeof(float);
-			fnumof = ptempo->ms_durvar;
-			err += sysfile_write(fh, &count_buf, &fnumof);
-			//ms_inicio(float)
-			//count_buf = sizeof(float);
-			fnumof = ptempo->ms_inicio;
-			err += sysfile_write(fh, &count_buf, &fnumof);
-			//n_bar(long)
-			count_buf = sizeof(long);
-			lnumof = ptempo->n_bar;
-			err += sysfile_write(fh, &count_buf, &lnumof);
-			//type(short)
-			count_buf = sizeof(short);
-			snumof = ptempo->type;
-			err += sysfile_write(fh, &count_buf, &snumof);
-
-			if (err) { object_error((t_object *)x, "write error: couldn't write tempos"); sysfile_close(fh); return; }
-		}
-	}
+	//--------------------------------------------------------
+	//bars
+	object = json_object_new_object();
+	total_bars = (long)linklist_getsize(x->l_bars);
+	tmp = json_object_new_int64(total_bars);
+	err = json_object_object_add(object, "bars", tmp);
+	if (err) { object_error((t_object *)x, "write error: couldn't write bars"); sysfile_close(fh); return; }
 	
-	//time signature----------------------------------------------------------/
-	//|num tsigns| n x [n bar(long), beats(float)]
-	count_buf = sizeof(long);
-	total_tsigns = lnumof = (long)linklist_getsize(x->l_tsigns);
-	err = sysfile_write(fh, &count_buf, &lnumof);
-	if (err) { object_error((t_object *)x, "write error: couldn't write tsigns"); sysfile_close(fh); return; }
+	//--------------------------------------------------------
+	//tempo
+	atempos = json_object_new_array();
+	total_tempos = (long)linklist_getsize(x->l_tempos);
+
+	if (total_tempos > 0) {
+		for (long i = 0; i < total_tempos; i++) {
+			tmptempo = json_object_new_object();
+
+			ptempo = linklist_getindex(x->l_tempos, i);
+			if (!ptempo) { continue; }
+
+			tmp = json_object_new_int64(ptempo->n_bar);
+			json_object_object_add(tmptempo, "bar", tmp);
+			tmp = json_object_new_double(ptempo->ms_beat);
+			json_object_object_add(tmptempo, "msbeat", tmp);
+
+			tmptempoc_array = json_object_new_array();
+			tmp = json_object_new_double(ptempo->ms_inicio);
+			json_object_array_add(tmptempoc_array, tmp);
+			tmp = json_object_new_double(ptempo->ms_durvar);
+			json_object_array_put_idx(tmptempoc_array, 1, tmp);
+			tmp = json_object_new_double(ptempo->curva);
+			json_object_array_put_idx(tmptempoc_array, 2, tmp);
+			json_object_object_add(tmptempo, "curve", tmptempoc_array);
+
+			if (!i) {
+				json_object_array_add(atempos, tmptempo);
+			}
+			else {
+				json_object_array_put_idx(atempos, i, tmptempo);
+			}
+		}
+	}
+	json_object_object_add(object, "tempo", atempos);
+
+	//--------------------------------------------------------
+	//tsign
+	atsigns = json_object_new_array();
+	total_tsigns = (long)linklist_getsize(x->l_tsigns);
+
 	if (total_tsigns > 0) {
-		for (int i = 0; i < total_tsigns; i++) {
-			//n bar(long)
+		for (long i = 0; i < total_tsigns; i++) {
+			tmptsign = json_object_new_object();
+
 			ptsign = linklist_getindex(x->l_tsigns, i);
-			count_buf = sizeof(long);
-			lnumof = ptsign->n_bar;
-			err = sysfile_write(fh, &count_buf, &lnumof);
-			//beats(float)	
-			count_buf = sizeof(float);
-			fnumof = ptsign->beats;
-			err += sysfile_write(fh, &count_buf, &fnumof);
+			if (!ptsign) { continue; }
 
-			if (err) { object_error((t_object *)x, "write error: couldn't write tsigns"); sysfile_close(fh); return; }
+			tmp = json_object_new_int64(ptsign->n_bar);
+			json_object_object_add(tmptsign, "bar", tmp);
+			tmp = json_object_new_double(ptsign->beats);
+			json_object_object_add(tmptsign, "beats", tmp);
+			if (!i) {
+				json_object_array_add(atsigns, tmptsign);
+			}
+			else {
+				json_object_array_put_idx(atsigns, i, tmptsign);
+			}
 		}
 	}
+	json_object_object_add(object, "tsign", atsigns);
 
-	//gotos-------------------------------------------------------------------/
-	//|n gotos| n x [n bar(long), total rep(long), to bar(long)]
-	count_buf = sizeof(long);
-	total_gotos = lnumof = (long)linklist_getsize(x->l_gotos);
-	err = sysfile_write(fh, &count_buf, &lnumof);
-	if (err) { object_error((t_object *)x, "write error: couldn't write gotos"); sysfile_close(fh); return; }
+	//--------------------------------------------------------
+	//goto
+	agotos = json_object_new_array();
+	total_gotos = (long)linklist_getsize(x->l_gotos);
+
 	if (total_gotos > 0) {
-		for (int i = 0; i < total_gotos; i++) {
-			pgoto = linklist_getindex(x->l_gotos, i);
-			// n bar(long)
-			count_buf = sizeof(long);
-			lnumof = pgoto->n_bar;
-			err = sysfile_write(fh, &count_buf, &lnumof);
-			// total rep(long)
-			//count_buf = sizeof(long);
-			lnumof = pgoto->total_rep;
-			err += sysfile_write(fh, &count_buf, &lnumof);
-			// to bar(long)
-			//count_buf = sizeof(long);
-			lnumof = pgoto->to_bar;
-			err += sysfile_write(fh, &count_buf, &lnumof);
+		for (long i = 0; i < total_gotos; i++) {
+			tmpgoto = json_object_new_object();
 
-			if (err) { object_error((t_object *)x, "write error: couldn't write gotos"); sysfile_close(fh); return; }
+			pgoto = linklist_getindex(x->l_gotos, i);
+			if (!pgoto) { continue; }
+
+			tmp = json_object_new_int64(pgoto->n_bar);
+			json_object_object_add(tmpgoto, "bar", tmp);
+			tmp = json_object_new_int64(pgoto->to_bar);
+			json_object_object_add(tmpgoto, "tobar", tmp);
+			tmp = json_object_new_int64(pgoto->total_rep);
+			json_object_object_add(tmpgoto, "rep", tmp);
+			if (!i) {
+				json_object_array_add(agotos, tmpgoto);
+			}
+			else {
+				json_object_array_put_idx(agotos, i, tmpgoto);
+			}
 		}
 	}
+	json_object_object_add(object, "goto", agotos);
 
-	//notes------------------------------------------------------------------------/
-	//|total bars|total notes| n * [nbar, start(float), canal(long), listac(long), listav(atom)]|
-	count_buf = sizeof(long);
-	total_bars = lnumof = (long)linklist_getsize(x->l_bars);
-	err = sysfile_write(fh, &count_buf, &lnumof); //total bars
-	if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
+	//--------------------------------------------------------
+	//note
+
+	anotes = json_object_new_array();
 	if (total_bars > 0) {
-
-		total_notes_all = 0;
-		notas_bar = 0;
-
-		for (int i = 0; i < total_bars; i++) {
+		
+		total_notes = 0;
+		for (long i = 0; i < total_bars; i++) {
 			pbar = linklist_getindex(x->l_bars, i);
-			total_notes_all += (long)linklist_getsize(pbar->notas);
+			total_notes += (long)linklist_getsize(pbar->notas);
 		}
 
-		//total notes
-		//count_buf = sizeof(long);
-		lnumof = total_notes_all;
-		err = sysfile_write(fh, &count_buf, &lnumof); 
-		if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
-		if (total_notes_all > 0) {
-			
-			long accum = 0;
-			for (int i = 0; i < total_bars; i++) {
+		if (total_notes > 0) {
+			jj = 0;
+			for (long i = 0; i < total_bars; i++) {
 				pbar = linklist_getindex(x->l_bars, i);
-				notas_bar = (long)linklist_getsize(pbar->notas);
+				total_notes_bar = (long)linklist_getsize(pbar->notas);
 
-				for (int j = 0; j < notas_bar; j++) {
+				for (long j = 0; j < total_notes_bar; j++) {
+					tmpnote = json_object_new_object();
+
 					pnote = linklist_getindex(pbar->notas, j);
-					//n bar
-					count_buf = sizeof(long);
-					lnumof = i;
-					err = sysfile_write(fh, &count_buf, &lnumof);
-					//beat start
-					count_buf = sizeof(float);
-					fnumof = pnote->b_inicio;
-					err += sysfile_write(fh, &count_buf, &fnumof);
-					//chan
-					count_buf = sizeof(long);
-					lnumof = pnote->canal;
-					err += sysfile_write(fh, &count_buf, &lnumof);
-					//ac
-					//count_buf = sizeof(long);
-					lnumof = pnote->cnota;
-					err += sysfile_write(fh, &count_buf, &lnumof);
-					//av
-					count_buf = pnote->cnota * sizeof(t_atom);
-					patom = pnote->pnota;
-					err += sysfile_write(fh, &count_buf, patom);
+					n_ap = pnote->pnota;
+					n_ac = pnote->cnota;
+					err = atom_gettext(n_ac, n_ap, &textsize, &text, OBEX_UTIL_ATOM_GETTEXT_DEFAULT);
+					if (err) { object_error((t_object *)x, "write error: couldn't parse message from note"); continue; }
 
-					if (err) { object_error((t_object *)x, "write error: couldn't write notes"); sysfile_close(fh); return; }
+					tmp = json_object_new_int64(i);
+					json_object_object_add(tmpnote, "bar", tmp);
+					tmp = json_object_new_double(pnote->b_inicio);
+					json_object_object_add(tmpnote, "start", tmp);
+					tmp = json_object_new_int64(pnote->canal);
+					json_object_object_add(tmpnote, "chan", tmp);
+					tmp = json_object_new_string(text);
+					json_object_object_add(tmpnote, "message", tmp);
+
+					if (!jj) {
+						json_object_array_add(anotes, tmpnote);
+					}
+					else {
+						json_object_array_put_idx(anotes, jj, tmpnote);
+					}
+					jj++;
 				}
 			}
 		}
 	}
+	json_object_object_add(object, "note", anotes);
 
-	sysfile_close(fh);
+	//--------------------------------------------------------
+	long max_buf_len = x->max_buf_len;
+	char *buf = sysmem_newptr(max_buf_len * sizeof(char));
+	t_handle hbuf = sysmem_newhandle(0);
 
-	object_post((t_object *)x, "file saved with no errors");
+	count_buf = strlen(json_object_to_json_string_ext(object, JSON_C_TO_STRING_PRETTY)) + 1;
+	if (count_buf > max_buf_len) {
+		buf = (char *)sysmem_resizeptr(buf, count_buf * sizeof(char));
+		if (!buf) { object_error((t_object *)x, "write error: out of memory for buffer"); }
+	}
+	strncpy_zero(buf, json_object_to_json_string_ext(object, JSON_C_TO_STRING_PRETTY), count_buf);
+	sysmem_ptrandhand(buf, hbuf, count_buf * sizeof(char));
+
+	err = sysfile_writetextfile(fh, hbuf, TEXT_LB_NATIVE);
+	if (err) {
+		sysmem_freeptr(buf);
+		sysfile_close(fh);
+		object_error((t_object *)x, "write error: couldn't write JSON file");
+		return;
+	}
+
+	sysmem_freeptr(text);
+	sysmem_freeptr(buf);
+	err = sysfile_close(fh);
+	if (err) { object_error((t_object *)x, "file closed with errors"); }
+	else { object_post((t_object *)x, "file closed with no errors"); }
+	
 	x->isloading = 0;
 }

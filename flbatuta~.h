@@ -14,6 +14,8 @@
 #include <time.h>
 #include <ext_linklist.h>
 
+#include "json.h"
+
 /* globals and statics ---------------------------------------------------------*/
 static t_class *s_fl_batuta_class;
 
@@ -38,6 +40,8 @@ static t_class *s_fl_batuta_class;
 #define BOX_TEXTF_H (20.)
 #define BOX_INFO_H (60.)
 #define BOX_FIJO_H (BOX_INFO_H+BOX_TEXTF_H)
+
+#define MAX_BUF_LEN 512
 
 /* inlets/outlets ------------------------------------------------------------*/
 enum INLETS { I_ONOFF, I_NEXTBAR, NUM_INLETS };	
@@ -103,6 +107,7 @@ typedef struct _fl_batuta
 
 	//lectura-escritura
 	long largo_texto;
+	long max_buf_len;
 
 	//edicion
 	t_linklist *l_tsigns;
