@@ -336,7 +336,7 @@ void fl_batuta_enter(t_fl_batuta *x)
 								while (++index_string <= subdiv) {
 									if (str_lista[index_string] == '1' && ac > index_repf + 1) {
 										inicio = beat_acum + beat * (float)(index_string - 1) / (float)subdiv;
-										err = do_add_note(x, bar_act, inicio, chan_index, ac - (index_repf + 1), av + index_repf + 1);
+										err = do_add_note(x, bar_act, inicio, chan_index, ac - (index_repf + 1), av + index_repf + 1, 1);
 										if(err){ object_error((t_object *)x, "note couldn't be added"); return; }
 									}
 								}
@@ -347,7 +347,7 @@ void fl_batuta_enter(t_fl_batuta *x)
 						if (atom_gettype(av + 3) != A_FLOAT && atom_gettype(av + 3) != A_LONG) { object_warn((t_object *)x, "beat start must be a number"); return; }
 						inicio = (float)atom_getfloat(av + 3);
 						if (inicio >= 0. && ac > 4) {
-							err = do_add_note(x, bar_act, inicio, chan_index, ac - 4, av + 4);
+							err = do_add_note(x, bar_act, inicio, chan_index, ac - 4, av + 4, 1);
 							if (err) { object_error((t_object *)x, "note couldn't be added"); return; }
 						}
 					}

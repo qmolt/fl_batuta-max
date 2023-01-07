@@ -328,7 +328,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 							if (!n_ap) { n_ap = (t_atom *)sysmem_newptr(n_ac * sizeof(t_atom)); }
 							else { n_ap = (t_atom *)sysmem_resizeptr(n_ap, n_ac * sizeof(t_atom)); }
 							
-							err = do_add_note(x, n_bar, n_start, n_chan, n_ac, n_ap);
+							err = do_add_note(x, n_bar, n_start, n_chan, n_ac, n_ap, 0);
 							if (err) { object_error((t_object *)x, "read error: note couldn't be added"); }
 							else { addcounter++; }
 						}

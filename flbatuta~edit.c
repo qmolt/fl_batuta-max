@@ -512,7 +512,7 @@ void fl_batuta_new_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 
 	atom_setlong(ap + 2, n_canal);
 
-	err = do_add_note(x, n_compas, b_inicio, n_canal, ac - 3, ap + 3);
+	err = do_add_note(x, n_compas, b_inicio, n_canal, ac - 3, ap + 3, 1);
 	if (err) { object_error((t_object *)x, "note: note couldn't be added"); x->isediting = 0; return; }
 	
 	err = fl_batuta_update_notes_onebar(x, n_compas);
@@ -523,23 +523,43 @@ void fl_batuta_new_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 
 	x->isediting = 0;
 }
-t_max_err do_add_note(t_fl_batuta *x, long bar, float inicio, long canal, long listac, t_atom *listav) {
+t_max_err do_add_note(t_fl_batuta *x, long bar, float inicio, long canal, long listac, t_atom *listav, short prependchan) {
 	t_max_err err = MAX_ERR_NONE;
+	long len_atombuf;
 	long index = -1;
+	short prepend_chan = prependchan;
 	fl_bar *pbar = linklist_getindex(x->l_bars, bar);
 	fl_note *pnota = (fl_note *)sysmem_newptr(sizeof(fl_note));
 	if (!pnota) { return MAX_ERR_OUT_OF_MEM; }
+
 	pnota->b_inicio = inicio;
 	pnota->canal = canal;
-	pnota->pnota = (t_atom *)sysmem_newptr((listac + 1) * sizeof(t_atom));
-	if (!pnota->pnota) { sysmem_freeptr(pnota); return MAX_ERR_OUT_OF_MEM; }
-	pnota->cnota = (listac + 1);
-	atom_setlong(pnota->pnota, canal);
-	err = atom_getatom_array(listac, listav, pnota->cnota - 1, pnota->pnota + 1);
-	if (err) { sysmem_freeptr(pnota->pnota); sysmem_freeptr(pnota); return MAX_ERR_GENERIC; }
+
+	if (prepend_chan) {
+		len_atombuf = listac + 1;
+
+		pnota->cnota = len_atombuf;
+		pnota->pnota = (t_atom *)sysmem_newptr(len_atombuf * sizeof(t_atom));
+		if (!pnota->pnota) { sysmem_freeptr(pnota); return MAX_ERR_OUT_OF_MEM; }
+
+		atom_setlong(pnota->pnota, canal);
+		err = atom_getatom_array(listac, listav, pnota->cnota - 1, pnota->pnota + 1);
+		if (err) { sysmem_freeptr(pnota->pnota); sysmem_freeptr(pnota); return MAX_ERR_GENERIC; }
+	}
+	else { 
+		len_atombuf = listac;
+
+		pnota->cnota = len_atombuf;
+		pnota->pnota = (t_atom *)sysmem_newptr(len_atombuf * sizeof(t_atom));
+		if (!pnota->pnota) { sysmem_freeptr(pnota); return MAX_ERR_OUT_OF_MEM; }
+
+		err = atom_getatom_array(listac, listav, pnota->cnota, pnota->pnota);
+		if (err) { sysmem_freeptr(pnota->pnota); sysmem_freeptr(pnota); return MAX_ERR_GENERIC; }
+	}
 	index = (long)linklist_insertindex(pbar->notas, pnota, 0);
 	if (index == -1) { return MAX_ERR_GENERIC; }
 	return MAX_ERR_NONE;
+
 }
 
 void fl_batuta_delete_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)

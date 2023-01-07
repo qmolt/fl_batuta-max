@@ -259,7 +259,7 @@ t_max_err do_edit_chan(t_fl_batuta *x, long bar, long chan_ini, long chan_fin);
 	//---note
 t_max_err do_find_note_index(t_fl_batuta *x, long *note_index, long bar, long chan, long note_in_chan);
 void fl_batuta_new_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv);
-t_max_err do_add_note(t_fl_batuta *x, long bar, float inicio, long canal, long listac, t_atom *listav);
+t_max_err do_add_note(t_fl_batuta *x, long bar, float inicio, long canal, long listac, t_atom *listav, short prependchan);
 void fl_batuta_delete_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv);
 t_max_err do_delete_note(t_fl_batuta *x, long bar, long index_nota);
 void fl_batuta_edit_note(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv);

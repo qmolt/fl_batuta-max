@@ -316,7 +316,7 @@ void fl_batuta_update_rec(t_fl_batuta *x)
 
 	for (int i = 0; i < x->total_rec; i++) {
 		chan = (long)atom_getlong(nota_rec[i].ap);
-		do_add_note(x, nota_rec[i].bar, nota_rec[i].b_start, chan, nota_rec[i].ac, nota_rec[i].ap);
+		do_add_note(x, nota_rec[i].bar, nota_rec[i].b_start, chan, nota_rec[i].ac, nota_rec[i].ap, 1);
 		if (!nota_rec[i].ap) { nota_rec[i].ap = (t_atom *)sysmem_newptr(sizeof(t_atom)); }
 		else { nota_rec[i].ap = (t_atom *)sysmem_resizeptr(nota_rec[i].ap, sizeof(t_atom)); }
 		if (!nota_rec[i].ap) { object_error((t_object *)x, "rec: ran out of memory"); return; }
