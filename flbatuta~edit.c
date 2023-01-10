@@ -856,7 +856,6 @@ void fl_batuta_new_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 	t_max_err err = MAX_ERR_NONE;
 	t_atom *ap = argv;
 	long ac = argc;
-	short type;
 	long n_bar;
 	float ms_inicio, ms_beat, ms_durvar, curva;
 	long total_tempos;
@@ -873,29 +872,28 @@ void fl_batuta_new_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 	if (atom_gettype(ap) != A_LONG && atom_gettype(ap) != A_FLOAT) { object_error((t_object *)x, "tempo: bar index must be a number (integer)"); return; }
 	if (atom_gettype(ap + 1) != A_FLOAT && atom_gettype(ap + 1) != A_LONG) { object_error((t_object *)x, "tempo: ms beat (period) must be a number (decimal)"); return; }
 	
-	type = 0;
 	n_bar = (long)atom_getlong(ap);
 	ms_beat = (float)atom_getfloat(ap + 1);
-	ms_inicio = 0.f;
-	ms_durvar = 0.f;
-	curva = 0.f;
 	
 	if (ac > 2) {
-		type = 0;
 		if (atom_gettype(ap + 2) != A_FLOAT && atom_gettype(ap + 2) != A_LONG) { object_error((t_object *)x, "tempo: ms delay to start of change must be a number (decimal)"); return; }
 		ms_inicio = (float)atom_getfloat(ap + 2);
 	}
+	else { ms_inicio = 0.; }
+
 	if (ac > 3) {
-		type = 1;
 		if (atom_gettype(ap + 3) != A_FLOAT && atom_gettype(ap + 3) != A_LONG) { object_error((t_object *)x, "tempo: ms duracion cambio debe ser float"); return; }
 		ms_durvar = (float)atom_getfloat(ap + 3);
 	}
+	else { ms_durvar = 0.; }
+
 	if (ac > 4) {
-		type = 2;
 		if (atom_gettype(ap + 4) != A_FLOAT && atom_gettype(ap + 4) != A_LONG) { object_error((t_object *)x, "tempo: curva debe ser float"); return; }
 		curva = (float)atom_getfloat(ap + 4);
 		curva = MIN(MAX(curva, CURVE_MIN), CURVE_MAX);
 	}
+	else { curva = 0.; }
+
 	
 	if (n_bar < 0) { object_error((t_object *)x, "tempo: bar index must be 0 or a positive"); return; }
 	if (ms_inicio < 0.) { object_error((t_object *)x, "tempo: start delay must be 0 or a positive"); return; }
@@ -907,18 +905,18 @@ void fl_batuta_new_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 	
 	total_tempos = (long)linklist_getsize(x->l_tempos);
 	if (!total_tempos) { 
-		err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.); 
+		err = do_add_tempo(x, 0, 0., 500., 0., 0.); 
 		if (err) { object_error((t_object *)x, "tempo: add a tempo on the first bar"); }
 	}
 	ptempo = linklist_getindex(x->l_tempos, 0);
 	if (ptempo) {
 		if (ptempo->n_bar != 0) {
-			err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.);
+			err = do_add_tempo(x, 0, 0., 500., 0., 0.);
 			if (err) { object_error((t_object *)x, "tempo: add a tempo on the first bar"); }
 		}
 	}
 
-	err = do_add_tempo(x, type, n_bar, ms_inicio, ms_beat, ms_durvar, curva);
+	err = do_add_tempo(x, n_bar, ms_inicio, ms_beat, ms_durvar, curva);
 	if (err) { object_error((t_object *)x, "tempo: tempo couldn't be added"); x->isediting = 0; return; }
 
 	err = fl_batuta_update_tempos(x);
@@ -929,11 +927,14 @@ void fl_batuta_new_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv)
 
 	x->isediting = 0;
 }
-t_max_err do_add_tempo(t_fl_batuta *x, short tipo, long bar, float inicio, float msbeat, float var, float cur) {
+t_max_err do_add_tempo(t_fl_batuta *x, long bar, float inicio, float msbeat, float var, float cur) {
 	long total_tempos, index;
 	fl_tempo *foundtempo = NULL;
 	fl_tempo *ptempo;
 	float ms_beat = MAX(msbeat, TEMPO_MIN);
+
+	float sigc = copysignf(1., cur);
+	float powval = powf(1 - cur * sigc, -sigc);
 
 	total_tempos = (long)linklist_getsize(x->l_tempos);
 	//probe tempo
@@ -946,18 +947,18 @@ t_max_err do_add_tempo(t_fl_batuta *x, short tipo, long bar, float inicio, float
 	//if found change the info, if not found add a tempo
 	if (index != -1) {
 		sysmem_freeptr(ptempo);
-		foundtempo->type = tipo;
 		foundtempo->ms_inicio = inicio;
 		foundtempo->ms_beat = ms_beat;
 		foundtempo->ms_durvar = var;
 		foundtempo->curva = cur;
+		foundtempo->powval = powval;
 	}
 	else {
-		ptempo->type = tipo;
 		ptempo->ms_inicio = inicio;
 		ptempo->ms_beat = ms_beat;
 		ptempo->ms_durvar = var;
 		ptempo->curva = cur;
+		ptempo->powval = powval;
 		long errindex = (long)linklist_insertindex(x->l_tempos, ptempo, 0);
 		if (errindex == -1) { sysmem_freeptr(ptempo); return MAX_ERR_GENERIC; }
 		linklist_sort(x->l_tempos, tempo_prevbar);
@@ -991,13 +992,13 @@ void fl_batuta_delete_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv
 
 	total_tempos = (long)linklist_getsize(x->l_tempos);
 	if (!total_tempos) {
-		err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.);
+		err = do_add_tempo(x, 0, 0., 500., 0., 0.);
 		if (err) { object_error((t_object *)x, "tempo: add a tempo on the first bar"); }
 	}
 	ptempo = linklist_getindex(x->l_tempos, 0);
 	if (ptempo) {
 		if (ptempo->n_bar != 0) {
-			err = do_add_tempo(x, 0, 0, 0., 500., 0., 0.);
+			err = do_add_tempo(x, 0, 0., 500., 0., 0.);
 			if (err) { object_error((t_object *)x, "tempo: add a tempo on the first bar"); }
 		}
 	}

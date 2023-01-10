@@ -467,7 +467,7 @@ void fl_batuta_enter(t_fl_batuta *x)
 					if (mstempo < TEMPO_MIN) { object_warn((t_object *)x, "period must be more than %f", TEMPO_MIN); return; }
 					if (variacion < 0.) { object_warn((t_object *)x, "delta duration must be 0 or positive"); return; }
 						
-					err = do_add_tempo(x, tipo, bar_act, inicio, mstempo, variacion, curva);
+					err = do_add_tempo(x, bar_act, inicio, mstempo, variacion, curva);
 					if (err) { object_error((t_object *)x, "tempo couldn't be added"); return; }
 					fl_batuta_update_tempos(x);
 					fl_batuta_update_uitempo(x);

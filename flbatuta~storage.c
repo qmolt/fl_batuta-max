@@ -74,7 +74,6 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	long n_chan;
 	long n_ac = 128;
 	t_atom *n_ap = (t_atom *)sysmem_newptr(128 * sizeof(t_atom *));
-	char *n_message;
 
 	if (path_opensysfile(filename, path, &fh, READ_PERM)) {
 		object_error((t_object *)x, "error opening %s", filename);
@@ -105,7 +104,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	//--------------------------------------------------------
 	//parse JSON
 	sysfile_geteof(fh, &zusize);
-	size = zusize;
+	size = (long)zusize;
 	buffer = (char *)sysmem_newptr(size);
 	if (!buffer) { object_error((t_object *)x, "out of memory to read file"); return; }
 	sysfile_read(fh, &zusize, buffer);
@@ -123,7 +122,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	if (json_object_object_get_ex(jobj, "bars", &tmp)) {
 		val_type = json_object_get_type(tmp);
 		if (val_type == json_type_int) {
-			total_bars = json_object_get_int64(tmp);
+			total_bars = (long)json_object_get_int64(tmp);
 		}
 	}
 	if (total_bars > 0) {
@@ -146,7 +145,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	if (json_object_object_get_ex(jobj, "tempo", &tmp)) {
 		val_type = json_object_get_type(tmp);
 		if (val_type == json_type_array) {
-			total_tempos = json_object_array_length(tmp);
+			total_tempos = (long)json_object_array_length(tmp);
 			addcounter = 0;
 			
 			if (total_tempos > 0) {
@@ -156,14 +155,14 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						t_bar = json_object_get_int64(tmpval);
+						t_bar = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "msbeat", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_double) { continue; }
-						t_msbeat = json_object_get_double(tmpval);
+						t_msbeat = (float)json_object_get_double(tmpval);
 					}
 					else { continue; }
 
@@ -175,29 +174,29 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 								tmpcurve = json_object_array_get_idx(tmpval, 0);
 								val_type = json_object_get_type(tmpcurve);
 								if (val_type != json_type_double) { continue; }
-								t_msstart = json_object_get_double(tmpcurve);
+								t_msstart = (float)json_object_get_double(tmpcurve);
 
 								tmpcurve = json_object_array_get_idx(tmpval, 1);
 								val_type = json_object_get_type(tmpcurve);
 								if (val_type != json_type_double) { continue; }
-								t_msdurvar = json_object_get_double(tmpcurve);
+								t_msdurvar = (float)json_object_get_double(tmpcurve);
 
 								tmpcurve = json_object_array_get_idx(tmpval, 2);
 								val_type = json_object_get_type(tmpcurve);
 								if (val_type != json_type_double) { continue; }
-								t_curve = json_object_get_double(tmpcurve);
+								t_curve = (float)json_object_get_double(tmpcurve);
 							}
 						}
 					}
 					else { continue; }
 			
-					err = do_add_tempo(x, 1, t_bar, t_msstart, t_msbeat, t_msdurvar, t_curve);
+					err = do_add_tempo(x, t_bar, t_msstart, t_msbeat, t_msdurvar, t_curve);
 					if (err) { object_error((t_object *)x, "read error: tempo couldn't be added"); }
 					else { addcounter++; }
 				}
 			}
 			else {
-				err = do_add_tempo(x, 1, 0, 0., 500., 0., 0.);
+				err = do_add_tempo(x, 0, 0., 500., 0., 0.);
 				if (err) { object_error((t_object *)x, "read error: tempo couldn't be added"); }
 			}
 		}
@@ -209,7 +208,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	if (json_object_object_get_ex(jobj, "tsign", &tmp)) {
 		val_type = json_object_get_type(tmp);
 		if (val_type == json_type_array) {
-			total_tsigns = json_object_array_length(tmp);
+			total_tsigns = (long)json_object_array_length(tmp);
 			addcounter = 0;
 
 			if (total_tsigns > 0) {
@@ -219,14 +218,14 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						ts_bar = json_object_get_int64(tmpval);
+						ts_bar = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "beats", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_double) { continue; }
-						ts_beats = json_object_get_double(tmpval);
+						ts_beats = (float)json_object_get_double(tmpval);
 					}
 					else { continue; }
 
@@ -248,7 +247,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	if (json_object_object_get_ex(jobj, "goto", &tmp)) {
 		val_type = json_object_get_type(tmp);
 		if (val_type == json_type_array) {
-			total_gotos = json_object_array_length(tmp);
+			total_gotos = (long)json_object_array_length(tmp);
 			addcounter = 0;
 
 			if (total_gotos > 0) {
@@ -258,21 +257,21 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						g_bar = json_object_get_int64(tmpval);
+						g_bar = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "tobar", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						g_tobar = json_object_get_int64(tmpval);
+						g_tobar = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "rep", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						g_rep = json_object_get_int64(tmpval);
+						g_rep = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
@@ -290,7 +289,7 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 	if (json_object_object_get_ex(jobj, "note", &tmp)) {
 		val_type = json_object_get_type(tmp);
 		if (val_type == json_type_array) {
-			total_notes = json_object_array_length(tmp);
+			total_notes = (long)json_object_array_length(tmp);
 			addcounter = 0;
 
 			if (total_notes > 0) {
@@ -300,30 +299,29 @@ void fl_batuta_openfile(t_fl_batuta *x, char *filename, short path)
 					if (json_object_object_get_ex(tmpidx, "bar", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						n_bar = json_object_get_int64(tmpval);
+						n_bar = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "start", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_double) { continue; }
-						n_start = json_object_get_double(tmpval);
+						n_start = (float)json_object_get_double(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "chan", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_int) { continue; }
-						n_chan = json_object_get_int64(tmpval);
+						n_chan = (long)json_object_get_int64(tmpval);
 					}
 					else { continue; }
 
 					if (json_object_object_get_ex(tmpidx, "message", &tmpval)) {
 						val_type = json_object_get_type(tmpval);
 						if (val_type != json_type_string) { continue; }
-						n_message = json_object_get_string(tmpval);
 
-						err = atom_setparse(&n_ac, &n_ap, n_message);
+						err = atom_setparse(&n_ac, &n_ap, json_object_get_string(tmpval));
 						if (!err) {
 							if (!n_ap) { n_ap = (t_atom *)sysmem_newptr(n_ac * sizeof(t_atom)); }
 							else { n_ap = (t_atom *)sysmem_resizeptr(n_ap, n_ac * sizeof(t_atom)); }
@@ -574,7 +572,7 @@ void fl_batuta_writefile(t_fl_batuta *x, char *filename, short path)
 	char *buf = sysmem_newptr(max_buf_len * sizeof(char));
 	t_handle hbuf = sysmem_newhandle(0);
 
-	count_buf = strlen(json_object_to_json_string_ext(object, JSON_C_TO_STRING_PRETTY)) + 1;
+	count_buf = (long)strlen(json_object_to_json_string_ext(object, JSON_C_TO_STRING_PRETTY)) + 1;
 	if (count_buf > max_buf_len) {
 		buf = (char *)sysmem_resizeptr(buf, count_buf * sizeof(char));
 		if (!buf) { object_error((t_object *)x, "write error: out of memory for buffer"); }

@@ -65,12 +65,12 @@ typedef struct _fl_note {
 }fl_note;
 
 typedef struct _fl_tempo {
-	short type;
 	long n_bar;
 	float ms_inicio;
 	float ms_beat;
 	float ms_durvar;
 	float curva;
+	float powval;
 }fl_tempo;
 
 typedef struct _fl_tsign {
@@ -151,7 +151,6 @@ typedef struct _fl_batuta
 	long cont_tempo;
 	long durac_dtempo;
 	float curva_dtempo;
-	short type_dtempo;
 	long delay_dtempo;
 
 	//rec
@@ -273,7 +272,7 @@ void fl_batuta_delete_signature(t_fl_batuta *x, t_symbol *s, long argc, t_atom *
 t_max_err do_delete_signature(t_fl_batuta *x, long bar);
 	//---tempo
 void fl_batuta_new_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv);
-t_max_err do_add_tempo(t_fl_batuta *x, short tipo, long bar, float inicio, float msbeat, float var, float cur);
+t_max_err do_add_tempo(t_fl_batuta *x, long bar, float inicio, float msbeat, float var, float cur);
 void fl_batuta_delete_tempo(t_fl_batuta *x, t_symbol *s, long argc, t_atom *argv); 
 t_max_err do_delete_tempo(t_fl_batuta *x, long bar);
 	//---goto

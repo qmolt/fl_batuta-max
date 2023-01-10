@@ -72,27 +72,22 @@ tempos (tempo, t)
 	-x [delete tempo]
 ```
 
-# Versions History
+# Bug-fix/Features History
 
-**0.2** 
 - Error handling for 'out of memory' cases and linklist function error returns
 - t_atomarray replaced with t_atom dynamic memory allocation
-
-**0.3**
 - 'rec' function added
 - 'quantize' and 'human' functions added
-
-**0.4** 
 - GUI added
-- Storage in text file
-
-**0.5** 
+- Storage in .text file
 - Texfield and command instructions added
 - Note selection with mouse
-
-**0.6** 
 - Comments and variables translated to english
 - A default bar/tempo/time signature is added if element in first bar is deleted
 - Info display on console corrected
 - Note selection with mouse removed
-- Storage in data file (replaces storage in text file)
+- Storage in .DATA file (replaces storage in text file)
+- Storage in .JSON file using [json-c](https://github.com/json-c/json-c/wiki) (replaces storage in DATA file)
+- Duplicated channel when saving file bug fixed
+- Simplification of fl_tempo (tempo.type deleted, tempo.powval added)
+- MATLAB tempo curve file added

@@ -397,7 +397,6 @@ void fl_batuta_paint_info(t_fl_batuta *x, t_object *view, t_rect *rect)
 	
 	double ts_ant, ts_act, ts_sig;
 	long ts_bar_ant, ts_bar_act, ts_bar_sig;
-	short tmp_type_act;
 	long tmp_bar_ant, tmp_bar_act, tmp_bar_sig;
 	float tmp_curva_act;
 	float tmp_delay_act;
@@ -449,7 +448,6 @@ void fl_batuta_paint_info(t_fl_batuta *x, t_object *view, t_rect *rect)
 	ts_act = pbar_act->psignat_ui->beats;
 	ts_bar_act = pbar_act->psignat_ui->n_bar;
 	tmp_bar_act = pbar_act->ptempo_ui->n_bar;
-	tmp_type_act = pbar_act->ptempo_ui->type;
 	tmp_curva_act = pbar_act->ptempo_ui->curva;
 	tmp_tempo_act = pbar_act->ptempo_ui->ms_beat;
 	tmp_delay_act = pbar_act->ptempo_ui->ms_inicio;
@@ -512,9 +510,7 @@ void fl_batuta_paint_info(t_fl_batuta *x, t_object *view, t_rect *rect)
 		if (tmp_bar_act >= 0) {
 			jgraphics_move_to(g, bar_w, 0.4 * BOX_INFO_H);
 			if (tmp_bar_act == jn_bar) {
-				if (tmp_type_act == 0) { sprintf(text, "♦ %8.2f [→%8.1f]", tmp_tempo_act, tmp_delay_act); }
-				else if (tmp_type_act == 1) { sprintf(text, "♦ %8.2f [→%8.1f, ∆%8.2f]", tmp_tempo_act, tmp_delay_act, tmp_duracion_act); }
-				else if (tmp_type_act == 2) { sprintf(text, "♦ %8.2f [→%8.1f, ∆%8.2f, c%3.2f]", tmp_tempo_act, tmp_delay_act, tmp_duracion_act, tmp_curva_act); }
+				sprintf(text, "♦ %8.2f [→%8.1f, ∆%8.2f, c%3.2f]", tmp_tempo_act, tmp_delay_act, tmp_duracion_act, tmp_curva_act);
 			}
 			else { sprintf(text, "%8.2f", tmp_tempo_act); }
 			jgraphics_show_text(g, text);

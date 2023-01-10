@@ -154,7 +154,6 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->jn_chan_min = 0;
 	x->jn_chan_max = 0;
 	
-	x->error_tempo.type = -1;
 	x->error_tempo.n_bar = -1;
 	x->error_tempo.ms_inicio = -1.f;
 	x->error_tempo.ms_durvar = -1.f;
@@ -240,8 +239,7 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->dtempo_busy = 0;
 	x->cont_tempo = 500;
 	x->durac_dtempo = 0;
-	x->curva_dtempo = 0.5;
-	x->type_dtempo = 0;
+	x->curva_dtempo = 0.;
 	x->delay_dtempo = 0;
 
 	x->index_tempo = 0;
@@ -285,7 +283,7 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->startclock = false;
 
 	do_add_bar(x, 0);
-	do_add_tempo(x, 0, 0, 0.f, 500.f, 0., 0.);
+	do_add_tempo(x, 0, 0.f, 500.f, 0., 0.);
 	do_add_signature(x, 0, 4.);
 	fl_batuta_update_notes(x);
 	fl_batuta_update_tempos(x);
@@ -455,21 +453,9 @@ void fl_batuta_info(t_fl_batuta  *x, t_symbol *s, long argc, t_atom *argv)
 			object_post((t_object *)x, "total tempos: %d", total_tempos);
 			for (int i = 0; i < total_tempos; i++) {
 				ptempo = linklist_getindex(x->l_tempos, i);
-				if (ptempo->type == 0) {
-					object_post((t_object *)x,
-						"tempo: bar:%d, delay:%.2f, ms tempo:%.2f",
-						ptempo->n_bar, ptempo->ms_inicio, ptempo->ms_beat);
-				}
-				else if (ptempo->type == 1) {
-					object_post((t_object *)x,
-						"tempo: bar:%d, delay:%.2f, ms tempo:%.2f, change dur ms:%.2f",
-						ptempo->n_bar, ptempo->ms_inicio, ptempo->ms_beat, ptempo->ms_durvar);
-				}
-				else if (ptempo->type == 2) {
-					object_post((t_object *)x,
-						"tempo: bar:%d, delay:%.2f, ms tempo:%.2f, change dur ms:%.2f, curve:%.2f",
-						ptempo->n_bar, ptempo->ms_inicio, ptempo->ms_beat, ptempo->ms_durvar, ptempo->curva);
-				}
+				object_post((t_object *)x,
+					"tempo: bar:%d, delay:%.2f, ms tempo:%.2f, change dur ms:%.2f, curve:%.2f",
+					ptempo->n_bar, ptempo->ms_inicio, ptempo->ms_beat, ptempo->ms_durvar, ptempo->curva);
 			}
 		}
 		else if (atom_getsym(ap) == gensym("tsign")) {

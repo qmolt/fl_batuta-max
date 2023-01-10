@@ -57,7 +57,7 @@ int getlinea(char *dest, char *orig, int lim)
 */
 
 /* math ---------------------------------------------------------------------- */
-float parse_curve(float curva)
+/*float parse_curve(float curva)
 {
 	curva = MIN(MAX(curva, CURVE_MIN), CURVE_MAX);
 	if (curva > 0.0) { return (float)(1.0 / (1.0 - curva)); } //c in (0,1)-> ret (1,0)
@@ -68,6 +68,7 @@ float msbeat_to_bpm(float ms_beat)
 	float bpm = 60000 / ms_beat;
 	return bpm;
 }
+*/
 
 /* comparison (previous) -------------------------------------------------------- */
 long signature_prevbar(fl_tsign *a, fl_tsign *b)

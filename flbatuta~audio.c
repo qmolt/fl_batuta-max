@@ -47,7 +47,6 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	float old_msbeat = x->old_msbeat;
 	float new_msbeat = x->new_msbeat;
 	float curva_dtempo = x->curva_dtempo;
-	short type_dtempo = x->type_dtempo;
 	long delay_dtempo = x->delay_dtempo;
 
 	fl_tsign **hcifra = x->tsigns;
@@ -148,7 +147,6 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 						delay_dtempo = (long)((htempo[index_tempo]->ms_inicio) * sr * 0.001);
 						new_msbeat = htempo[index_tempo]->ms_beat;
 						old_msbeat = ms_beat;
-						type_dtempo = htempo[index_tempo]->type;
 						dtempo_busy = 1;
 						break;
 					}
@@ -159,37 +157,18 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				}
 			}
 
-			//var tempo
+			//var tempo: inv counter (delay_dt ---> 0)
 			if (dtempo_busy == 1) {
 				if (delay_dtempo <= 0) {
-					if (type_dtempo == 0) {
-						ms_beat = new_msbeat;
-						dtempo_busy = 0;
-
-						total_samps_ant = total_samps;
-
-						total_samps = (long)(negras * ms_beat * sr * 0.001);
-						total_beat = (total_samps / (long)ceil(negras));
-
-						samps_bar *= ((double)total_samps / total_samps_ant);
-					}
-					else if (type_dtempo == 1) {
-						durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
-						curva_dtempo = 1.0;
-						cont_tempo = 0;
-						dtempo_busy = 2;
-					}
-					else {
-						durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
-						curva_dtempo = htempo[index_tempo]->curva;
-						if (curva_dtempo > 0.0) { curva_dtempo = (1.f / (1.f - curva_dtempo)); } //(0,1) -> (1,0)
-						else { curva_dtempo = (curva_dtempo + 1.f); } //(-1,0] -> [0,1]
-						cont_tempo = 0;
-						dtempo_busy = 2;
-					}
+					durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
+					curva_dtempo = htempo[index_tempo]->powval;
+					cont_tempo = 0;
+					dtempo_busy = 2;
 				}
 				else { delay_dtempo--; }
 			}
+
+			//var tempo: counter (0 ---> durac_dt)
 			if (dtempo_busy == 2) {
 				if (cont_tempo++ <= durac_dtempo) {
 					xi = (float)(cont_tempo / (float)durac_dtempo);
@@ -259,6 +238,5 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	x->cont_tempo = cont_tempo;
 	x->durac_dtempo = durac_dtempo;
 	x->curva_dtempo = curva_dtempo;
-	x->type_dtempo = type_dtempo;
 	x->delay_dtempo = delay_dtempo;
 }
