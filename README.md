@@ -74,20 +74,35 @@ tempos (tempo, t)
 
 # Bug-fix/Features History
 
-- Error handling for 'out of memory' cases and linklist function error returns
-- t_atomarray replaced with t_atom dynamic memory allocation
-- 'rec' function added
-- 'quantize' and 'human' functions added
-- GUI added
-- Storage in .text file
-- Texfield and command instructions added
-- Note selection with mouse
-- Comments and variables translated to english
-- A default bar/tempo/time signature is added if element in first bar is deleted
-- Info display on console corrected
-- Note selection with mouse removed
-- Storage in .DATA file (replaces storage in text file)
-- Storage in .JSON file using [json-c](https://github.com/json-c/json-c/wiki) (replaces storage in DATA file)
-- Duplicated channel when saving file bug fixed
-- Simplification of fl_tempo (tempo.type deleted, tempo.powval added)
 - MATLAB tempo curve file added
+- Simplification of fl_tempo (tempo.type deleted, tempo.powval added)
+- Duplicated channel when saving file bug fixed
+- Storage in .JSON file using [json-c](https://github.com/json-c/json-c/wiki) (replaces storage in DATA file)
+- Storage in .DATA file (replaces storage in text file)
+- Note selection with mouse removed
+- Info display on console corrected
+- A default bar/tempo/time signature is added if element in first bar is deleted
+- Comments and variables translated to english
+- Note selection with mouse
+- Texfield and command instructions added
+- Storage in .txt file
+- GUI added
+- 'quantize' and 'human' functions added
+- 'rec' function added
+- t_atomarray replaced with t_atom dynamic memory allocation
+- Error handling for 'out of memory' cases and linklist function error returns
+- First commit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
