@@ -234,9 +234,12 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->total_bars = 0;
 	x->total_notes_out = 0;
 
+	x->task_new_idx = 0;
+	x->task_out_bar = 0;
+
 	x->old_msbeat = 500;
 	x->new_msbeat = 500;
-	x->dtempo_busy = 0;
+	x->task_tempo = 0;
 	x->cont_tempo = 500;
 	x->durac_dtempo = 0;
 	x->curva_dtempo = 0.;
@@ -279,8 +282,6 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 	x->cursor_clock = clock_new((t_object *)x, (method)fl_batuta_tick);
 
 	srand((unsigned int)clock());
-
-	x->startclock = false;
 
 	do_add_bar(x, 0);
 	do_add_tempo(x, 0, 0.f, 500.f, 0., 0.);

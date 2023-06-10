@@ -43,6 +43,8 @@ static t_class *s_fl_batuta_class;
 
 #define MAX_BUF_LEN 512
 
+enum TASK_TEMPO { TT_FINDTEMPO, TT_DELAYDELTA, TT_DELTATEMPO };
+
 /* inlets/outlets ------------------------------------------------------------*/
 enum INLETS { I_ONOFF, I_NEXTBAR, NUM_INLETS };	
 enum OUTLETS { O_BEATSIG, O_BARSIG, O_TEMPO, O_CIFRA, O_COMPAS, O_OUTPUT, O_BANG, NUM_OUTLETS };
@@ -143,11 +145,13 @@ typedef struct _fl_batuta
 	long total_samps;
 	long samps_beat;
 	long total_beat;
+	short task_out_bar;
+	short task_new_idx;
 
 	//cambio de tempo
 	float old_msbeat;
 	float new_msbeat;
-	short dtempo_busy;
+	short task_tempo;
 	long cont_tempo;
 	long durac_dtempo;
 	float curva_dtempo;
@@ -192,7 +196,6 @@ typedef struct _fl_batuta
 	void *outbar_clock;
 	void *outcifra_clock;
 	void *cursor_clock;
-	char startclock;
 
 	//interno
 	void *outlet_mevent;

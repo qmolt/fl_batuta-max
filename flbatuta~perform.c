@@ -216,31 +216,34 @@ t_max_err fl_batuta_update_uibar(t_fl_batuta *x)
 //---------------------------------------------
 void fl_batuta_onoff(t_fl_batuta *x, long n)
 {
-	if (n < 0 || (n != n)) { n = 0; } // n != n tests for infinities and nans
+	if (n != n) { return; }
+
+	if (n < 0) { n = 0; }
 	if (n) {
 		if (x->isediting || x->isloading) {
-			object_warn((t_object *)x, "play: can't play while editing or loading. Try again");
+			object_error((t_object *)x, "play: can't play while editing or loading. Try again");
 			return;
 		}
+
 		if (x->next_bar_dirty) {
-			x->n_bar = x->next_bar - 1;
+			x->n_bar = x->next_bar;
 			x->next_bar_dirty = 0;
 			x->samps_beat = 0;
 		}
-		else { x->n_bar = -1; }
+		else { x->n_bar = 0; }
 
 		x->samps_bar = 0;
 		x->samps_beat = 0;
 		x->index_cifra = x->index_goto = x->index_tempo = x->index_nota = 0;
 		x->negras = x->tsigns[0]->beats;
 		x->ms_beat = x->tempos[0]->ms_beat;
-		x->dtempo_busy = 0;
+		x->task_tempo = 0;
 
 		x->isplaying = 1;
+		x->task_out_bar = 1;
 	}
 	else {
 		x->isplaying = 0;
-		x->startclock = 1;
 		if (x->dirty_rec) {
 			fl_batuta_update_rec(x);
 		}
