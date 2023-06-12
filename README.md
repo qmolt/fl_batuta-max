@@ -74,6 +74,7 @@ tempos (tempo, t)
 
 # Bug-fix/Features History
 
+- perform64 method reworked
 - MATLAB tempo curve file added
 - Simplification of fl_tempo (tempo.type deleted, tempo.powval added)
 - Duplicated channel when saving file bug fixed

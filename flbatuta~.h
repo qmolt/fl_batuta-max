@@ -43,7 +43,7 @@ static t_class *s_fl_batuta_class;
 
 #define MAX_BUF_LEN 512
 
-enum TASK_TEMPO { TT_FINDTEMPO, TT_DELAYDELTA, TT_DELTATEMPO };
+enum TASK_TEMPO { TT_FINDTEMPO, TT_DELTATEMPO };
 
 /* inlets/outlets ------------------------------------------------------------*/
 enum INLETS { I_ONOFF, I_NEXTBAR, NUM_INLETS };	
@@ -141,12 +141,13 @@ typedef struct _fl_batuta
 	long index_cifra;
 	long index_goto;
 	long index_nota;
-	double samps_bar;
+	long samps_bar;
 	long total_samps;
 	long samps_beat;
 	long total_beat;
 	short task_out_bar;
 	short task_new_idx;
+	short task_end_flag;
 
 	//cambio de tempo
 	float old_msbeat;
@@ -321,8 +322,8 @@ t_jrgb hsltorgb(double h, double s, double l);
 	//---text
 //int getlinea(char *dest, char *orig, int lim);
 	//---math
-float parse_curve(float curva);
-float msbeat_to_bpm(float ms_beat);
+//float parse_curve(float curva);
+//float msbeat_to_bpm(float ms_beat);
 	//---comparison
 long signature_prevbar(fl_tsign *a, fl_tsign *b);
 long goto_prevbar(fl_goto *a, fl_goto *b);

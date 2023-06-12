@@ -26,7 +26,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 
 	double sr = x->sr;
 	char isplaying = x->isplaying;
-	double samps_bar = x->samps_bar;
+	long samps_bar = x->samps_bar;
 	long total_samps = x->total_samps;
 	long samps_beat = x->samps_beat;
 	long total_beat = x->total_beat;
@@ -38,7 +38,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	long next_bar = x->next_bar;
 	short task_out_bar = x->task_out_bar;
 	short task_new_idx = x->task_new_idx;
-	short task_end_flag = 0;
+	short task_end_flag = x->task_end_flag;
 
 	long total_tempos = x->total_tempos;
 	fl_tempo **htempo = x->tempos;
@@ -68,23 +68,24 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	double cursor = x->fasor_cursor;
 
 	float xi;
-	double total_samps_ant;
+	long total_samps_ant;
+	double samps_bar_factor;
 
 	total_samps = (long)(negras * ms_beat * sr * 0.001);
 	total_beat = (long)(total_samps / negras);
 
 	while (n--) {
 		
-		if (x->isplaying) {
+		if (isplaying) {
 			//force n bar
 			if (next_bar_dirty) {
-				n_bar = MIN(next_bar, total_bars - 1);
+				n_bar = MIN(next_bar, (total_bars - 1));
 				index_tempo = index_cifra = index_goto = 0;
 				samps_bar = 0;
 				samps_beat = 0;
 
 				next_bar_dirty = 0;
-				task_tempo = 0;
+				task_tempo = TT_FINDTEMPO;
 			}
 
 			//update bar
@@ -93,16 +94,18 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				n_bar++;
 
 				//tasks
-				task_new_idx = 1;
-				task_out_bar = 1;
 				if (n_bar >= total_bars) {
 					task_end_flag = 1;
-					x->isplaying = 0;
+					isplaying = 0;
+				}
+				else {
+					task_new_idx = 1;
+					task_out_bar = 1;
 				}
 			}
 		}
 
-		if(x->isplaying){
+		if(isplaying){
 			if (task_new_idx) {
 				//goto
 				while (index_goto < total_gotos) {
@@ -111,7 +114,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					else if (hgoto[index_goto]->n_bar == n_bar) {
 						if ((hgoto[index_goto]->cont_rep)++ < hgoto[index_goto]->total_rep) {
-							n_bar = MIN(hgoto[index_goto]->to_bar, total_bars - 1);
+							n_bar = MIN(hgoto[index_goto]->to_bar, (total_bars - 1));
 							index_nota = index_tempo = index_cifra = index_goto = 0;
 						}
 						break;
@@ -121,6 +124,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					index_goto++;
 				}
+
 				//time signature
 				while (index_cifra < total_tsigns) {
 					if (hcifra[index_cifra]->n_bar < n_bar) {
@@ -129,13 +133,10 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					else if (hcifra[index_cifra]->n_bar == n_bar) {
 						negras = hcifra[index_cifra]->beats;
 
-						total_samps_ant = total_samps;
-
 						total_samps = (long)(negras * ms_beat * sr * 0.001);
-						total_beat = (total_samps / (long)ceil(negras));
+						total_beat = (long)(total_samps / negras);
 
-						samps_bar *= ((double)total_samps / total_samps_ant);
-
+						x->negras = negras;
 						clock_delay(x->outcifra_clock, 0);
 						break;
 					}
@@ -144,7 +145,6 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					index_cifra++;
 				}
-				x->negras = negras;
 
 				//tempo
 				while (index_tempo < total_tempos && task_tempo == TT_FINDTEMPO) {
@@ -153,9 +153,12 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					else if (htempo[index_tempo]->n_bar == n_bar) {
 						delay_dtempo = (long)((htempo[index_tempo]->ms_inicio) * sr * 0.001);
+						durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
+						curva_dtempo = htempo[index_tempo]->powval;
 						new_msbeat = htempo[index_tempo]->ms_beat;
 						old_msbeat = ms_beat;
-						task_tempo = TT_DELAYDELTA;
+						cont_tempo = 0;
+						task_tempo = TT_DELTATEMPO;
 						break;
 					}
 					else {
@@ -167,29 +170,28 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				task_new_idx = 0;
 			}
 
-			if (task_tempo == TT_DELAYDELTA) {
-				if (--delay_dtempo < 0) {
-					durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
-					curva_dtempo = htempo[index_tempo]->powval;
-					cont_tempo = 0;
-					task_tempo = TT_DELTATEMPO;
-				}
-			}
+			//tempo
 			if (task_tempo == TT_DELTATEMPO) {
-				if (cont_tempo++ <= durac_dtempo) {
-					xi = (float)(cont_tempo / (float)durac_dtempo);
-					ms_beat = old_msbeat + (float)pow(xi, curva_dtempo) * (new_msbeat - old_msbeat);
-
-					total_samps_ant = total_samps;
-
-					total_samps = (long)(negras * ms_beat * sr * 0.001);
-					total_beat = (total_samps / (long)ceil(negras));
-
-					samps_bar *= ((double)total_samps / total_samps_ant);
+				if (delay_dtempo > 0) {
+					delay_dtempo--;
 				}
 				else {
-					task_tempo = 0;
-					index_tempo++;
+					if (cont_tempo++ <= durac_dtempo) {
+						xi = (float)(cont_tempo / (float)durac_dtempo);
+						ms_beat = old_msbeat + (float)pow(xi, curva_dtempo) * (new_msbeat - old_msbeat);
+
+						total_samps_ant = total_samps;
+
+						total_samps = (long)(negras * ms_beat * sr * 0.001);
+						total_beat = (total_samps / (long)ceil(negras));
+
+						samps_bar_factor = ((double)total_samps / (double)total_samps_ant);
+						samps_bar = (long)((double)samps_bar * samps_bar_factor);
+					}
+					else {
+						task_tempo = TT_FINDTEMPO;
+						index_tempo++;
+					}
 				}
 			}
 
@@ -216,11 +218,11 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 
 		if (task_out_bar) { 
 			clock_delay(x->outbar_clock, 0); 
-			task_out_bar = 0;
+			x->task_out_bar = 0;
 		}
 		if (task_end_flag) { 
 			clock_delay(x->bang_clock, 0);
-			task_end_flag = 0;
+			x->task_end_flag = 0;
 		}
 
 		samps_beat = (long)samps_bar % (long)(total_samps / negras);
@@ -230,6 +232,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	}
 
 	/* update state variables */
+	x->isplaying = isplaying;
 	x->fasor_cursor = cursor;
 	x->samps_bar = samps_bar;
 	x->total_samps = total_samps;

@@ -241,6 +241,7 @@ void fl_batuta_onoff(t_fl_batuta *x, long n)
 
 		x->isplaying = 1;
 		x->task_out_bar = 1;
+		x->task_new_idx = 0;//debug
 	}
 	else {
 		x->isplaying = 0;
@@ -262,7 +263,9 @@ void reset_cont_goto(t_fl_batuta *x)
 
 void fl_batuta_nextbar(t_fl_batuta *x, long n)
 {
-	if (n < 0 || (n != n)) { n = 0; }
+	if (n != n) { return; }
+	
+	if (n < 0) { n = 0; }
 
 	x->next_bar = n;
 	x->next_bar_dirty = 1;

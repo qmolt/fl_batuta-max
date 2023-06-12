@@ -236,13 +236,14 @@ void *fl_batuta_new(t_symbol *s, long argc, t_atom *argv)
 
 	x->task_new_idx = 0;
 	x->task_out_bar = 0;
+	x->task_end_flag = 0;
 
 	x->old_msbeat = 500;
 	x->new_msbeat = 500;
 	x->task_tempo = 0;
 	x->cont_tempo = 500;
 	x->durac_dtempo = 0;
-	x->curva_dtempo = 0.;
+	x->curva_dtempo = 1.;
 	x->delay_dtempo = 0;
 
 	x->index_tempo = 0;
