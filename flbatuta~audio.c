@@ -77,21 +77,18 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	while (n--) {
 		
 		if (isplaying) {
-			//force n bar
-			if (next_bar_dirty) {
-				n_bar = MIN(next_bar, (total_bars - 1));
-				index_tempo = index_cifra = index_goto = 0;
-				samps_bar = 0;
-				samps_beat = 0;
-
-				next_bar_dirty = 0;
-				task_tempo = TT_FINDTEMPO;
-			}
-
 			//update bar
 			if (samps_bar++ > total_samps) {
 				samps_bar = 0;
 				n_bar++;
+
+				//force n bar
+				if (next_bar_dirty) {
+					n_bar = next_bar;
+					index_tempo = index_cifra = index_goto = 0;
+					task_tempo = TT_FINDTEMPO;
+					next_bar_dirty = 0;
+				}
 
 				//tasks
 				if (n_bar >= total_bars) {
@@ -108,6 +105,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 		if(isplaying){
 			if (task_new_idx) {
 				//goto
+				
 				while (index_goto < total_gotos) {
 					if (hgoto[index_goto]->n_bar < n_bar) {
 						;
@@ -145,7 +143,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					index_cifra++;
 				}
-
+				
 				//tempo
 				while (index_tempo < total_tempos && task_tempo == TT_FINDTEMPO) {
 					if (htempo[index_tempo]->n_bar < n_bar) {
@@ -166,7 +164,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					}
 					index_tempo++;
 				}
-
+				
 				task_new_idx = 0;
 			}
 
@@ -176,21 +174,20 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 					delay_dtempo--;
 				}
 				else {
-					if (cont_tempo++ <= durac_dtempo) {
+					if (++cont_tempo <= durac_dtempo) {
 						xi = (float)(cont_tempo / (float)durac_dtempo);
 						ms_beat = old_msbeat + (float)pow(xi, curva_dtempo) * (new_msbeat - old_msbeat);
 
 						total_samps_ant = total_samps;
 
 						total_samps = (long)(negras * ms_beat * sr * 0.001);
-						total_beat = (total_samps / (long)ceil(negras));
+						total_beat = (long)(total_samps / negras);
 
 						samps_bar_factor = ((double)total_samps / (double)total_samps_ant);
 						samps_bar = (long)((double)samps_bar * samps_bar_factor);
 					}
 					else {
 						task_tempo = TT_FINDTEMPO;
-						index_tempo++;
 					}
 				}
 			}
@@ -211,18 +208,19 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 				}
 				if (cont_notas > 0) { clock_delay(x->outmes_clock, 0); }
 			}
+
+			//bar output and final flag
+			if (task_out_bar) {
+				clock_delay(x->outbar_clock, 0);
+				x->task_out_bar = 0;
+			}
+			if (task_end_flag) {
+				clock_delay(x->bang_clock, 0);
+				x->task_end_flag = 0;
+			}
 		}
 		else { 
 			samps_bar = samps_beat = 0; 
-		}
-
-		if (task_out_bar) { 
-			clock_delay(x->outbar_clock, 0); 
-			x->task_out_bar = 0;
-		}
-		if (task_end_flag) { 
-			clock_delay(x->bang_clock, 0);
-			x->task_end_flag = 0;
 		}
 
 		samps_beat = (long)samps_bar % (long)(total_samps / negras);
@@ -247,7 +245,7 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 	x->index_goto = index_goto;
 	x->index_nota = index_nota;
 	x->next_bar_dirty = next_bar_dirty;
-	x->old_msbeat = old_msbeat;	//for tempo variation
+	x->old_msbeat = old_msbeat;
 	x->new_msbeat = new_msbeat;
 	x->task_tempo = task_tempo;
 	x->cont_tempo = cont_tempo;

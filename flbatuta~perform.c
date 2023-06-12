@@ -237,11 +237,11 @@ void fl_batuta_onoff(t_fl_batuta *x, long n)
 		x->index_cifra = x->index_goto = x->index_tempo = x->index_nota = 0;
 		x->negras = x->tsigns[0]->beats;
 		x->ms_beat = x->tempos[0]->ms_beat;
-		x->task_tempo = 0;
+		x->task_tempo = TT_FINDTEMPO;
 
 		x->isplaying = 1;
 		x->task_out_bar = 1;
-		x->task_new_idx = 0;//debug
+		x->task_new_idx = 1;
 	}
 	else {
 		x->isplaying = 0;
