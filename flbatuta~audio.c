@@ -104,8 +104,8 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 
 		if(isplaying){
 			if (task_new_idx) {
+
 				//goto
-				
 				while (index_goto < total_gotos) {
 					if (hgoto[index_goto]->n_bar < n_bar) {
 						;
@@ -150,13 +150,19 @@ void fl_batuta_perform64(t_fl_batuta *x, t_object *dsp64, double **inputs, long 
 						ms_beat = htempo[index_tempo]->ms_beat;
 					}
 					else if (htempo[index_tempo]->n_bar == n_bar) {
-						delay_dtempo = (long)((htempo[index_tempo]->ms_inicio) * sr * 0.001);
+						delay_dtempo = (long)(htempo[index_tempo]->ms_inicio * sr * 0.001);
 						durac_dtempo = (long)(htempo[index_tempo]->ms_durvar * sr * 0.001);
 						curva_dtempo = htempo[index_tempo]->powval;
 						new_msbeat = htempo[index_tempo]->ms_beat;
 						old_msbeat = ms_beat;
-						cont_tempo = 0;
-						task_tempo = TT_DELTATEMPO;
+ 						
+						if(delay_dtempo > 0){
+							cont_tempo = 0;
+							task_tempo = TT_DELTATEMPO;
+						}
+						else {
+							ms_beat = new_msbeat;
+						}
 						break;
 					}
 					else {
